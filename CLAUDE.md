@@ -35,6 +35,17 @@ Chú thích: ✅ hoàn thiện · 🟡 chạy được nhưng chưa đầy đủ
 
 ---
 
+### Knowledge Center: phân quyền admin / người dùng (2026-09-25)
+- Người dùng thường **vẫn dùng Knowledge Center**: tạo KB, upload (tính vào hạn mức dung lượng của gói), thư mục/xoá file, KB mặc định, reindex, nguồn GitHub/web/EduHub, chọn KB trong chat.
+- **Chỉ admin** (`_ADMIN_ONLY = [Depends(require_admin)]` trong `api/routers/knowledge.py`): mọi `PUT /knowledge-bases/rag-pipelines/*/config`, `rag-pipelines/active-model` (trước đây user thường ghi được vào catalog model của admin!), `rag-providers/{p}/mode`; các chức năng đọc thư mục **trên máy chủ** (`connect-folder`, `probe-folder`, `connect-obsidian`, `connect-marginnote4`, `{kb}/link-folder`, `{kb}/sync-folder/*`) và nối máy chủ/tài khoản ngoài (`probe|connect-lightrag-server`, `list|probe|connect-ima`, WeKnora). Muốn giới hạn thư mục admin được nối: biến môi trường `PATHMIND_LINKED_FOLDER_ROOTS`.
+- **Nội dung kéo từ GitHub/web tính vào hạn mức dung lượng** của gói: `sync-github` / `sync-web` đo kích thước `raw/` của KB trước–sau mỗi nguồn và ghi chênh lệch bằng `update_user_storage` (trang bị xoá khi đồng bộ ⇒ trả lại dung lượng). Hết dung lượng ⇒ từ chối đồng bộ (403, `billing.storage_full`). Kích thước một lần crawl không biết trước nên lần đồng bộ cuối có thể vượt nhẹ hạn mức; khi đó các lần upload/đồng bộ sau bị chặn đến khi xoá bớt. Xoá KB/tệp trả lại dung lượng như upload. Đồng bộ nền định kỳ của GitHub chỉ chạy cho kho của admin (không giới hạn).
+- Nguồn web: chặn địa chỉ nội bộ ngay khi thêm (crawler vốn đã chặn từng lần chuyển hướng); user thường bị giới hạn `KB_WEB_SOURCE_MAX_PAGES` (mặc định 50) và `KB_WEB_SOURCE_MAX_DEPTH` (3). Nguồn GitHub phải đúng dạng `owner/repo`.
+- Giao diện (`KnowledgePage` → `useKnowledgeAdminAccess`): user thường không thấy tab "Knowledge engines", modal tạo KB không có "Link existing" và không có engine LightRAG Server / WeKnora / IMA. Test: `tests/services/test_knowledge_admin_only.py`.
+
+### Đổi thư mục C:\DeepTutor → C:\PathMind + ẩn Personalization (2026-09-25)
+- Kho workspace (`data/**/.runtime/workspaces.sqlite3`, metadata `root`, binding cũ trong settings) lưu **đường dẫn tuyệt đối**. Sau khi đổi tên/chuyển thư mục cài đặt, chat báo "The selected workspace folder does not exist". `services/workspace/relocate.py` (`relocate_stale_path`) tự neo lại đường dẫn cũ vào `data/` hiện tại khi đường dẫn cũ không còn và vị trí tương ứng có thật; `catalog._catalog()` ghi lại hàng đã sửa. Áp dụng cả khi chuyển `data/` sang server khác.
+- Learning Space: nhóm **Personalization** (Personas, Skills, MCP, CLI Apps, Memory) chỉ hiện cho **admin** khi bật đăng nhập (`components/common/AdminOnlyGuard.tsx`: `usePersonalizationAccess`, guard trong `SpaceMain` cho `/space/personas|skills|mcp|cli-apps` và `app/(utility)/memory/layout.tsx`). User thường vào URL trực tiếp ⇒ về `/space`. Chỉ ẩn giao diện; API backend không đổi, trí nhớ (memory) vẫn chạy ngầm.
+
 ### Model mặc định theo gói (2026-09-25)
 - Cột mới `subscription_plans.default_model` (sửa ở `/admin/plans` → "Default model", phải nằm trong `allowed_models`). Người dùng **chưa tự chọn model** sẽ dùng model này; trống ⇒ model mặc định của deployment (Cài đặt → Models). Admin không bị ảnh hưởng.
 - Gói **Free mặc định `deepseek-v4-flash`** (×1.9 tín dụng, catalog đang đặt tên `deepseek-flash` — khớp qua alias bảng giá) thay vì `gemini-3.6-flash` (×5.4): cùng hạn mức dùng được ~3 lần nhiều hơn (tạo đề Quiz ~38k tín dụng thay vì ~108k). Seed chỉ điền khi cột còn NULL; admin xoá trống thì lưu "" và không bị ghi đè.
@@ -89,7 +100,7 @@ Chú thích: ✅ hoàn thiện · 🟡 chạy được nhưng chưa đầy đủ
 - Tiện ích đọc (read aloud, quiz, …) có danh sách built-in dự phòng khi chạy từ source không cài package.
 
 ### Dọn file không cần để chạy (2026-09-24)
-Đã chuyển sang `C:\DeepTutor_removed\` (kèm `DeepTutor_source_backup.zip` là bản sao mã nguồn trước khi đổi):
+Đã chuyển sang `C:\PathMind_removed\` (kèm `DeepTutor_source_backup.zip` là bản sao mã nguồn trước khi đổi):
 tài liệu & README dịch, `assets/`, `docs-for-user/`, CONTRIBUTING/CODE_OF_CONDUCT/CITATION/AGENTS/SKILL;
 Docker/compose, `.github/`, `packaging/`, `deeptutor_web/`; CLI `deeptutor_cli/`, pre-commit, import-linter,
 script dev (`scripts/check_*`, `update.py`, …); toàn bộ test (`tests/`, `web/tests`, cấu hình Playwright/Vitest).
@@ -297,10 +308,10 @@ Chạy dev: `start.bat` / `stop.bat` ở thư mục gốc (log ở `logs\backend
 
 ## 8. Kiểm thử
 
-Bộ test không nằm trong repo: ở `C:\DeepTutor_removed\tests\tests` (đã đổi tên sang `pathmind`; có thêm
+Bộ test không nằm trong repo: ở `C:\PathMind_removed\tests\tests` (đã đổi tên sang `pathmind`; có thêm
 `multi_user/test_signup_flow.py`, `multi_user/test_account_deletion.py`, `services/test_security_hardening.py`,
 `services/test_plan_default_model.py`). Script chạy toàn bộ `fulltest.bat` đã chuyển sang
-`C:\DeepTutor_removed\cleanup_20260925\` — nó chép test vào `tests/`, đặt `DATABASE_URL` sang SQLite tạm
+`C:\PathMind_removed\cleanup_20260925\` — nó chép test vào `tests/`, đặt `DATABASE_URL` sang SQLite tạm
 (để **không ghi vào DB thật**), chạy pytest (log `logs/pytest_full2.log`) rồi chuyển test về chỗ cũ.
 
 Kết quả lần chạy 2026-09-25: **6004 pass / 113 fail / 66 skip**. Các lỗi còn lại đều do môi

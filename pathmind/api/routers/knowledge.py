@@ -103,6 +103,11 @@ log_dir = config.get("paths", {}).get("user_log_dir") or config.get("logging", {
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+# Deployment-wide settings (engines, active model, stored credentials) and
+# anything that reads the server's own filesystem are administrator-only:
+# regular accounts only manage the knowledge bases in their own space.
+_ADMIN_ONLY = [Depends(require_admin)]
 ws_router = APIRouter()
 
 _DEFAULT_EXTRACT_TEXT_FROM_PATH = extract_text_from_path
@@ -1295,7 +1300,7 @@ class ProviderModeUpdate(BaseModel):
     mode: str
 
 
-@router.put("/knowledge-bases/rag-providers/{provider}/mode")
+@router.put("/knowledge-bases/rag-providers/{provider}/mode", dependencies=_ADMIN_ONLY)
 async def set_rag_provider_mode(provider: str, payload: ProviderModeUpdate):
     """Persist the default retrieval mode for a mode-aware engine.
 
@@ -1348,7 +1353,7 @@ async def get_pageindex_pipeline_config():
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.put("/knowledge-bases/rag-pipelines/pageindex/config")
+@router.put("/knowledge-bases/rag-pipelines/pageindex/config", dependencies=_ADMIN_ONLY)
 async def update_pageindex_pipeline_config(payload: PageIndexConfigUpdate):
     """Persist the deployment-level PageIndex Cloud credential."""
     try:
@@ -1401,7 +1406,7 @@ async def get_ima_pipeline_config():
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.put("/knowledge-bases/rag-pipelines/ima/config")
+@router.put("/knowledge-bases/rag-pipelines/ima/config", dependencies=_ADMIN_ONLY)
 async def update_ima_pipeline_config(payload: ImaConfigUpdate):
     """Persist the account-level IMA Client ID / API key."""
     try:
@@ -1456,7 +1461,7 @@ async def get_llamaindex_pipeline_config():
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.put("/knowledge-bases/rag-pipelines/llamaindex/config")
+@router.put("/knowledge-bases/rag-pipelines/llamaindex/config", dependencies=_ADMIN_ONLY)
 async def update_llamaindex_pipeline_config(payload: LlamaIndexConfigUpdate):
     """Persist the LlamaIndex engine knobs.
 
@@ -1496,7 +1501,7 @@ async def get_graphrag_pipeline_config():
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.put("/knowledge-bases/rag-pipelines/graphrag/config")
+@router.put("/knowledge-bases/rag-pipelines/graphrag/config", dependencies=_ADMIN_ONLY)
 async def update_graphrag_pipeline_config(payload: GraphRagConfigUpdate):
     """Persist GraphRAG's query knobs. Takes effect on the next query."""
     try:
@@ -1557,7 +1562,7 @@ async def get_lightrag_pipeline_config():
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.put("/knowledge-bases/rag-pipelines/lightrag/config")
+@router.put("/knowledge-bases/rag-pipelines/lightrag/config", dependencies=_ADMIN_ONLY)
 async def update_lightrag_pipeline_config(payload: LightRagConfigUpdate):
     """Persist LightRAG's knobs.
 
@@ -1614,7 +1619,7 @@ async def get_lightrag_server_pipeline_config():
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.put("/knowledge-bases/rag-pipelines/lightrag-server/config")
+@router.put("/knowledge-bases/rag-pipelines/lightrag-server/config", dependencies=_ADMIN_ONLY)
 async def update_lightrag_server_pipeline_config(payload: LightRagServerConfigUpdate):
     """Persist reusable defaults without changing existing KB bindings."""
     try:
@@ -1796,7 +1801,7 @@ class ActiveModelUpdate(BaseModel):
     model_id: str
 
 
-@router.put("/knowledge-bases/rag-pipelines/active-model")
+@router.put("/knowledge-bases/rag-pipelines/active-model", dependencies=_ADMIN_ONLY)
 async def set_rag_active_model(payload: ActiveModelUpdate):
     """Set the active model for an engine's required kind, applied immediately.
 
@@ -1996,7 +2001,7 @@ class ConnectObsidianRequest(BaseModel):
     vault_path: str
 
 
-@router.post("/knowledge-bases/connect-obsidian")
+@router.post("/knowledge-bases/connect-obsidian", dependencies=_ADMIN_ONLY)
 async def connect_obsidian_vault(payload: ConnectObsidianRequest):
     """Connect an existing Obsidian vault as a knowledge base.
 
@@ -2029,7 +2034,7 @@ class ConnectMarginNote4Request(BaseModel):
     description: str = ""
 
 
-@router.post("/knowledge-bases/connect-marginnote4")
+@router.post("/knowledge-bases/connect-marginnote4", dependencies=_ADMIN_ONLY)
 async def connect_marginnote4(payload: ConnectMarginNote4Request):
     """Register a connected MarginNote 4 library as a knowledge base.
 
@@ -2069,7 +2074,7 @@ class ConnectFolderRequest(BaseModel):
     rag_provider: str = DEFAULT_PROVIDER
 
 
-@router.post("/knowledge-bases/probe-folder")
+@router.post("/knowledge-bases/probe-folder", dependencies=_ADMIN_ONLY)
 async def probe_linked_folder_route(payload: ProbeFolderRequest):
     """Inspect a local folder for a ready engine index before linking it.
 
@@ -2088,7 +2093,7 @@ async def probe_linked_folder_route(payload: ProbeFolderRequest):
     return result.to_dict()
 
 
-@router.post("/knowledge-bases/connect-folder")
+@router.post("/knowledge-bases/connect-folder", dependencies=_ADMIN_ONLY)
 async def connect_linked_folder_route(payload: ConnectFolderRequest):
     """Mount an existing engine index as a read-only ``linked`` knowledge base.
 
@@ -2165,7 +2170,7 @@ class ConnectWeKnoraRequest(BaseModel):
     knowledge_base_id: str
 
 
-@router.post("/knowledge-bases/probe-lightrag-server")
+@router.post("/knowledge-bases/probe-lightrag-server", dependencies=_ADMIN_ONLY)
 async def probe_lightrag_server_route(payload: ProbeLightRagServerRequest):
     """Test-connect to an external LightRAG server before binding a KB to it.
 
@@ -2189,7 +2194,7 @@ async def probe_lightrag_server_route(payload: ProbeLightRagServerRequest):
     return result.to_dict()
 
 
-@router.post("/knowledge-bases/connect-lightrag-server")
+@router.post("/knowledge-bases/connect-lightrag-server", dependencies=_ADMIN_ONLY)
 async def connect_lightrag_server_route(payload: ConnectLightRagServerRequest):
     """Connect an external LightRAG server as a retrieval-only knowledge base.
 
@@ -2354,7 +2359,7 @@ def _resolve_ima_credentials(client_id: str, api_key: str) -> ImaCredentials:
     return get_account_credentials()
 
 
-@router.post("/knowledge-bases/list-ima", response_model=ListImaResponse)
+@router.post("/knowledge-bases/list-ima", dependencies=_ADMIN_ONLY, response_model=ListImaResponse)
 async def list_ima_route(payload: ListImaRequest):
     """List IMA knowledge bases without storing or echoing credentials."""
     credentials = _resolve_ima_credentials(payload.client_id, payload.api_key)
@@ -2397,7 +2402,7 @@ class ConnectImaRequest(BaseModel):
     knowledge_base_id: str
 
 
-@router.post("/knowledge-bases/probe-ima")
+@router.post("/knowledge-bases/probe-ima", dependencies=_ADMIN_ONLY)
 async def probe_ima_route(payload: ProbeImaRequest):
     """Test-connect to a Tencent IMA knowledge base before binding a KB to it.
 
@@ -2416,7 +2421,7 @@ async def probe_ima_route(payload: ProbeImaRequest):
     return result.to_dict()
 
 
-@router.post("/knowledge-bases/connect-ima")
+@router.post("/knowledge-bases/connect-ima", dependencies=_ADMIN_ONLY)
 async def connect_ima_route(payload: ConnectImaRequest):
     """Connect a Tencent IMA knowledge base as a retrieval-only knowledge base.
 
@@ -2974,6 +2979,42 @@ def _dir_size(path: Path) -> int:
     except OSError:
         pass
     return total
+
+
+def _source_storage_precheck() -> None:
+    """Refuse a GitHub/web sync when the account has no storage left.
+
+    Pulled pages and files land in the KB's ``raw/`` folder exactly like
+    uploads, so they count toward the plan's storage limit. A crawl's size is
+    not known up front: the sync is allowed while there is space left, and the
+    real growth is recorded afterwards (``_record_source_storage``).
+    """
+    current_user = get_current_user()
+    try:
+        from pathmind.database.connection import get_db_session
+        from pathmind.services.quota_service import check_storage_quota
+
+        with get_db_session() as db:
+            allowed, reason = check_storage_quota(current_user.id, 1, db, role=current_user.role)
+    except Exception as exc:
+        logger.warning("Storage quota check skipped: %s", exc)
+        return
+    if not allowed:
+        raise HTTPException(status_code=403, detail=reason)
+
+
+def _record_source_storage(delta_bytes: int) -> None:
+    """Charge (or give back) the bytes a source sync added to ``raw/``."""
+    if not delta_bytes:
+        return
+    try:
+        from pathmind.database.connection import get_db_session
+        from pathmind.services.quota_service import update_user_storage
+
+        with get_db_session() as db:
+            update_user_storage(get_current_user().id, int(delta_bytes), db)
+    except Exception as exc:
+        logger.warning("Could not record storage for source sync: %s", exc)
 
 
 def _delete_kb(kb_name: str) -> dict[str, str]:
@@ -4177,7 +4218,7 @@ async def websocket_progress(websocket: WebSocket, kb_name: str):
                 pass
 
 
-@router.post("/knowledge-bases/{kb_name}/link-folder", response_model=LinkedFolderInfo)
+@router.post("/knowledge-bases/{kb_name}/link-folder", dependencies=_ADMIN_ONLY, response_model=LinkedFolderInfo)
 async def link_folder(kb_name: str, request: LinkFolderRequest):
     """
     Link a local folder to a knowledge base.
@@ -4241,7 +4282,7 @@ async def unlink_folder(kb_name: str, folder_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/knowledge-bases/{kb_name}/sync-folder/{folder_id}")
+@router.post("/knowledge-bases/{kb_name}/sync-folder/{folder_id}", dependencies=_ADMIN_ONLY)
 async def sync_folder(kb_name: str, folder_id: str, background_tasks: BackgroundTasks):
     """
     Sync files from a linked folder to the knowledge base.
@@ -4341,6 +4382,41 @@ class GitHubSourceInfo(BaseModel):
     added_at: str = ""
 
 
+_GITHUB_REPO_RE = re.compile(r"^(?!\.{1,2}/)[A-Za-z0-9_.-]{1,100}/(?!\.{1,2}$)[A-Za-z0-9_.-]{1,100}$")
+
+
+def _web_source_limits(url: str, max_depth: int, max_pages: int) -> tuple[int, int]:
+    """Reject private/intranet targets; cap crawl size for regular accounts.
+
+    Administrators keep the full range. Everyone else is limited by
+    ``KB_WEB_SOURCE_MAX_PAGES`` (default 50) and ``KB_WEB_SOURCE_MAX_DEPTH``
+    (default 3) so one account cannot make the server crawl a whole site.
+    """
+    from urllib.parse import urlparse
+
+    from pathmind.tools.web_fetch import _is_disallowed_host
+
+    host = (urlparse(url.strip()).hostname or "").strip()
+    if host and _is_disallowed_host(host):
+        raise HTTPException(
+            status_code=400,
+            detail="This address points to a private or local network and cannot be crawled.",
+        )
+    if get_current_user().is_admin:
+        return max_depth, max_pages
+
+    def _env_int(name: str, default: int) -> int:
+        try:
+            return max(1, int(os.environ.get(name, "") or default))
+        except ValueError:
+            return default
+
+    return (
+        min(max_depth, _env_int("KB_WEB_SOURCE_MAX_DEPTH", 3)),
+        min(max_pages, _env_int("KB_WEB_SOURCE_MAX_PAGES", 50)),
+    )
+
+
 class AddWebSourceRequest(BaseModel):
     url: str = Field(min_length=1, max_length=2048)
     max_depth: int = Field(default=3, ge=1, le=5)
@@ -4383,6 +4459,11 @@ def _knowledge_source_errors(kb_name: str, *, validation_status: int = 404):
 
 @router.post("/knowledge-bases/{kb_name}/github-source", response_model=GitHubSourceInfo)
 async def add_github_source(kb_name: str, request: AddGitHubSourceRequest):
+    repo = request.repo.strip().rstrip("/")
+    repo = repo[:-4] if repo.endswith(".git") else repo
+    repo = repo.split("github.com/", 1)[-1].strip("/")
+    if not _GITHUB_REPO_RE.match(repo):
+        raise HTTPException(status_code=400, detail="Use a GitHub repository as owner/name.")
     with _knowledge_source_errors(kb_name, validation_status=400):
         manager, resolved_name, _ = _writable_kb(kb_name)
         info = manager.add_github_source(
@@ -4416,11 +4497,17 @@ async def sync_github_sources(kb_name: str):
             return {"message": "No GitHub sources", "results": []}
         from pathmind.services.github_source.sync import sync_source
 
+        _source_storage_precheck()
+        raw_dir = Path(kb_base_dir) / resolved_name / "raw"
         results = []
         for src in sources:
             if not src.get("enabled", True):
                 continue
-            r = await sync_source(kb_name=resolved_name, source=src, base_dir=str(kb_base_dir))
+            before = _dir_size(raw_dir)
+            try:
+                r = await sync_source(kb_name=resolved_name, source=src, base_dir=str(kb_base_dir))
+            finally:
+                _record_source_storage(_dir_size(raw_dir) - before)
             results.append(
                 {
                     "source_id": src.get("id"),
@@ -4438,11 +4525,10 @@ async def sync_github_sources(kb_name: str):
 
 @router.post("/knowledge-bases/{kb_name}/web-source", response_model=WebSourceInfo)
 async def add_web_source(kb_name: str, request: AddWebSourceRequest):
+    max_depth, max_pages = _web_source_limits(request.url, request.max_depth, request.max_pages)
     with _knowledge_source_errors(kb_name, validation_status=400):
         manager, resolved_name, _ = _writable_kb(kb_name)
-        info = manager.add_web_source(
-            resolved_name, request.url, request.max_depth, request.max_pages
-        )
+        info = manager.add_web_source(resolved_name, request.url, max_depth, max_pages)
         return WebSourceInfo(**info)
 
 
@@ -4476,15 +4562,21 @@ async def sync_web_sources(kb_name: str):
         if not enabled:
             return {"message": "No enabled web sources", "results": []}
 
+        _source_storage_precheck()
+        raw_dir = Path(kb_base_dir) / resolved_name / "raw"
         results = []
         for source in enabled:
-            result = await sync_source(
-                kb_name=resolved_name,
-                source=source,
-                base_dir=str(kb_base_dir),
-                max_depth=source.get("max_depth"),
-                max_pages=source.get("max_pages"),
-            )
+            before = _dir_size(raw_dir)
+            try:
+                result = await sync_source(
+                    kb_name=resolved_name,
+                    source=source,
+                    base_dir=str(kb_base_dir),
+                    max_depth=source.get("max_depth"),
+                    max_pages=source.get("max_pages"),
+                )
+            finally:
+                _record_source_storage(_dir_size(raw_dir) - before)
             refreshed = manager.get_web_sources(resolved_name)
             page_count = next(
                 (

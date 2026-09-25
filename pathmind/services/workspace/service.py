@@ -21,6 +21,7 @@ from pathmind.multi_user.context import get_current_user
 from pathmind.multi_user.paths import get_account_path_service as get_path_service
 from pathmind.services.settings.interface_settings import atomic_update
 from pathmind.services.workspace.catalog import WorkspaceCatalogMixin
+from pathmind.services.workspace.relocate import relocate_stale_path
 from pathmind.services.workspace.models import WorkspaceBinding, WorkspaceError, WorkspaceItem
 from pathmind.utils.secret_files import ensure_private_directory
 
@@ -156,6 +157,7 @@ class ContentWorkspaceService(WorkspaceCatalogMixin):
                 if not isinstance(row, dict) or str(row.get("id") or "") != active_id:
                     continue
                 raw_path = str(row.get("path") or "").strip()
+                raw_path = relocate_stale_path(raw_path) or raw_path
                 if raw_path:
                     root = Path(raw_path).expanduser().resolve()
                     binding = self._binding(root, is_default=root == self._default_root())
@@ -178,7 +180,8 @@ class ContentWorkspaceService(WorkspaceCatalogMixin):
         for row in self._read_settings().get("bindings") or []:
             if not isinstance(row, dict) or str(row.get("id") or "") != workspace_id:
                 continue
-            root = Path(str(row.get("path") or "")).expanduser().resolve()
+            stored = str(row.get("path") or "")
+            root = Path(relocate_stale_path(stored) or stored).expanduser().resolve()
             self._assert_allowed_root(root)
             binding = self._binding(root, is_default=root == self._default_root())
             # Binding ids are derived from both the user id and the physical

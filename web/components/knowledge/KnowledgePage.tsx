@@ -18,6 +18,7 @@ import {
 } from "@/lib/resource-routes";
 import type { IndexingLLMSelection } from "@/features/knowledge/model/types";
 import { confirmAction } from "@/lib/confirm";
+import { useKnowledgeAdminAccess } from "@/components/common/AdminOnlyGuard";
 
 const panelLoading = () => (
   <div
@@ -49,6 +50,9 @@ export default function KnowledgePage() {
   const searchParams = useSearchParams();
   const initialKb = decodeResourceSegment(routeParams.kbName);
   const initialEngine = searchParams.get("engine");
+  // Engines, server folders and remote retrieval servers are deployment-wide:
+  // regular accounts only see and manage their own knowledge bases.
+  const { allowed: canManageEngines } = useKnowledgeAdminAccess();
   const initialHomeSection: KnowledgeHomeSection =
     initialEngine || searchParams.get("section") === "engines"
       ? "knowledge-engines"
@@ -350,8 +354,9 @@ export default function KnowledgePage() {
               onCreate={openCreate}
               activeSection={homeSection}
               onSectionChange={setHomeSection}
+              canManageEngines={canManageEngines}
             />
-          ) : view === "engine" && selectedProvider ? (
+          ) : view === "engine" && selectedProvider && canManageEngines ? (
             <EngineDetail
               provider={selectedProvider}
               kbs={kbs}
@@ -375,6 +380,7 @@ export default function KnowledgePage() {
               onCreate={openCreate}
               activeSection={homeSection}
               onSectionChange={setHomeSection}
+              canManageEngines={canManageEngines}
             />
           ) : (
             <KnowledgeBaseDetail
@@ -414,10 +420,15 @@ export default function KnowledgePage() {
           onConnectIma={connectIma}
           initialMode={createPreset?.mode}
           initialSource={createPreset?.source}
-          onConfigureProvider={(providerId) => {
-            setCreateOpen(false);
-            openEngine(providerId);
-          }}
+          allowServerSources={canManageEngines}
+          onConfigureProvider={
+            canManageEngines
+              ? (providerId) => {
+                  setCreateOpen(false);
+                  openEngine(providerId);
+                }
+              : undefined
+          }
         />
       ) : null}
     </div>

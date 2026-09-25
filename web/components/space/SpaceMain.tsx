@@ -4,6 +4,10 @@ import Link from "next/link";
 import { SkillLibraryScope } from "./SkillLibraryScope";
 import { usePathname } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
+import AdminOnlyGuard from "@/components/common/AdminOnlyGuard";
+
+// Personalization pages: administrators only (see AdminOnlyGuard).
+const ADMIN_ONLY_PATHS = ["/space/personas", "/space/skills", "/space/mcp", "/space/cli-apps"];
 import { useTranslation } from "react-i18next";
 
 // Hub-and-spoke: the dashboard at `/space` is the only navigator. Once inside a
@@ -31,6 +35,20 @@ export default function SpaceMain({
 }: Readonly<{ children: React.ReactNode }>) {
   const pathname = usePathname() ?? "";
   const isDashboard = pathname === "/space";
+  const adminOnly = ADMIN_ONLY_PATHS.some(
+    path => pathname === path || pathname.startsWith(`${path}/`)
+  );
+  const body = (
+    <>
+      {['/space/skills', '/space/mcp'].includes(pathname) && (
+        <div className="mb-5 rounded-lg border border-[var(--border)] p-3 text-sm text-[var(--muted-foreground)]">
+          <ResourceLibraryNote />
+        </div>
+      )}
+      {pathname === "/space/skills" && <SkillLibraryScope />}
+      {children}
+    </>
+  );
 
   return (
     <div className="h-full overflow-y-auto bg-[var(--background)] [scrollbar-gutter:stable]">
@@ -40,13 +58,7 @@ export default function SpaceMain({
             <BackToHub />
           </div>
         )}
-        {['/space/skills', '/space/mcp'].includes(pathname) && (
-          <div className="mb-5 rounded-lg border border-[var(--border)] p-3 text-sm text-[var(--muted-foreground)]">
-            <ResourceLibraryNote />
-          </div>
-        )}
-        {pathname === "/space/skills" && <SkillLibraryScope />}
-        {children}
+        {adminOnly ? <AdminOnlyGuard>{body}</AdminOnlyGuard> : body}
       </div>
     </div>
   );

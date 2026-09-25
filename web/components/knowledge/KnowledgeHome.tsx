@@ -43,6 +43,8 @@ interface KnowledgeHomeProps {
   onCreate: () => void;
   activeSection: KnowledgeHomeSection;
   onSectionChange: (section: KnowledgeHomeSection) => void;
+  /** False for regular accounts: the "Knowledge engines" tab is hidden. */
+  canManageEngines?: boolean;
 }
 
 function EngineStatusBadge({ status }: { status: ProviderConnectionStatus }) {
@@ -99,9 +101,13 @@ export default function KnowledgeHome({
   onOpenEngine,
   onOpenSource,
   onCreate,
-  activeSection,
+  activeSection: requestedSection,
   onSectionChange,
+  canManageEngines = true,
 }: KnowledgeHomeProps) {
+  const activeSection: KnowledgeHomeSection = canManageEngines
+    ? requestedSection
+    : "knowledge-bases";
   const { t } = useTranslation();
   const [query, setQuery] = useState("");
   const providerName = (id: string) =>
@@ -264,7 +270,11 @@ export default function KnowledgeHome({
               count: providers.length + externalSources.length,
               icon: Cpu,
             },
-          ].map((item) => {
+          ]
+            .filter(
+              (item) => canManageEngines || item.id === "knowledge-bases",
+            )
+            .map((item) => {
             const active = activeSection === item.id;
             const Icon = item.icon;
             return (

@@ -2,7 +2,7 @@
 
 import type { EmbeddingModelSelection } from "@/features/knowledge/model/types";
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import {
   AlertTriangle,
@@ -120,12 +120,19 @@ interface CreateKbModalProps {
   initialMode?: Mode;
   /** Pre-select a link source (engine id or "obsidian") when opening in link mode. */
   initialSource?: string;
+  /**
+   * False for regular accounts: no "Link existing" (server folders, Obsidian,
+   * MarginNote, IMA) and no remote retrieval servers — only new uploads.
+   */
+  allowServerSources?: boolean;
 }
+
+const REMOTE_ONLY_PROVIDERS = new Set([LIGHTRAG_SERVER_PROVIDER, WEKNORA_PROVIDER, IMA_PROVIDER]);
 
 export default function CreateKbModal({
   isOpen,
   onClose,
-  providers,
+  providers: allProviders,
   uploadPolicy,
   onCreate,
   onConnectLinkedFolder,
@@ -135,10 +142,19 @@ export default function CreateKbModal({
   onConnectMarginNote4,
   onConnectIma,
   onConfigureProvider,
-  initialMode = "new",
+  initialMode: requestedMode = "new",
   initialSource,
+  allowServerSources = true,
 }: CreateKbModalProps) {
   const { t } = useTranslation();
+  const providers = useMemo(
+    () =>
+      allowServerSources
+        ? allProviders
+        : allProviders.filter((p) => !REMOTE_ONLY_PROVIDERS.has(p.id)),
+    [allProviders, allowServerSources],
+  );
+  const initialMode: Mode = allowServerSources ? requestedMode : "new";
   const [mode, setMode] = useState<Mode>("new");
   const [name, setName] = useState("");
   const [provider, setProvider] = useState("llamaindex");
@@ -602,12 +618,14 @@ export default function CreateKbModal({
     >
       <div className="space-y-4 px-5 py-4">
         {/* New vs. link existing */}
-        <ModeToggle
-          mode={mode}
-          onChange={handleModeChange}
-          disabled={submitting}
-          t={t}
-        />
+        {allowServerSources && (
+          <ModeToggle
+            mode={mode}
+            onChange={handleModeChange}
+            disabled={submitting}
+            t={t}
+          />
+        )}
 
         <div>
           <label className="mb-1 block text-[11px] font-medium uppercase tracking-wide text-[var(--muted-foreground)]">

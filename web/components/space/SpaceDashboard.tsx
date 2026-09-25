@@ -27,6 +27,7 @@ import { listNotebooks, listNotebookEntries } from "@/lib/notebook-api";
 import { listPersonas } from "@/lib/personas-api";
 import { listKnowledgeBases } from "@/features/knowledge/api/catalog";
 import { listSkills } from "@/lib/skills-api";
+import { usePersonalizationAccess } from "@/components/common/AdminOnlyGuard";
 
 /**
  * Learning Space dashboard — the hub of `/space`.
@@ -84,6 +85,8 @@ interface DashboardItem {
 interface DashboardGroup {
   label: Lang;
   items: DashboardItem[];
+  /** Only administrators see this group when sign-in is enabled. */
+  adminOnly?: boolean;
 }
 
 const GROUPS: DashboardGroup[] = [
@@ -146,6 +149,7 @@ const GROUPS: DashboardGroup[] = [
   },
   {
     label: { zh: "个性化", en: "Personalization" },
+    adminOnly: true,
     items: [
       {
         key: "personas",
@@ -240,8 +244,6 @@ const GROUPS: DashboardGroup[] = [
   },
 ];
 
-const ALL_ITEMS = GROUPS.flatMap(g => g.items);
-
 /**
  * The groups to render, given what the backend can actually serve.
  *
@@ -277,16 +279,24 @@ export default function SpaceDashboard() {
   const [counts, setCounts] = useState<Partial<Record<DashKey, number>>>({});
 
   const capabilityAvailable = useCapabilityFilter();
+  const personalization = usePersonalizationAccess();
   const groups = useMemo(
-    () => visibleGroups(GROUPS, capabilityAvailable),
-    [capabilityAvailable]
+    () =>
+      visibleGroups(GROUPS, capabilityAvailable).filter(
+        group => !group.adminOnly || personalization.allowed
+      ),
+    [capabilityAvailable, personalization.allowed]
   );
 
   useEffect(() => {
     let cancelled = false;
     // Each tile loads independently so one slow/failed endpoint never blanks
     // the whole dashboard.
-    for (const item of ALL_ITEMS) {
+    if (!personalization.ready) return;
+    const items = GROUPS.filter(
+      group => !group.adminOnly || personalization.allowed
+    ).flatMap(group => group.items);
+    for (const item of items) {
       if (!item.load) continue;
       item
         .load()
@@ -300,7 +310,7 @@ export default function SpaceDashboard() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [personalization.ready, personalization.allowed]);
 
   return (
     <div>

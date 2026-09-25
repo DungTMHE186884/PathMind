@@ -106,7 +106,33 @@ class WorkspaceCatalogMixin:
                 ]
         except (sqlite3.Error, ValueError) as exc:
             raise WorkspaceError("The workspace registry could not be read.") from exc
-        return [row for row in rows if row.get("owner_id") == _owner_id()]
+        owner = _owner_id()
+        mine = [row for row in rows if row.get("owner_id") == owner]
+        self._heal_moved_paths(mine)
+        return mine
+
+    def _heal_moved_paths(self, rows: list[dict[str, Any]]) -> None:
+        """Rewrite rows whose folder moved with the installation (see relocate.py)."""
+        from pathmind.services.workspace.relocate import relocate_stale_path
+
+        changed = []
+        for row in rows:
+            moved = relocate_stale_path(row.get("path"))
+            if moved and moved != row.get("path"):
+                row["path"] = moved
+                changed.append(row)
+        if not changed:
+            return
+        try:
+            with self._catalog_connection() as conn:
+                for row in changed:
+                    conn.execute(
+                        "UPDATE workspaces SET payload = ? WHERE id = ?",
+                        (json.dumps(row, ensure_ascii=False), row["workspace_id"]),
+                    )
+        except sqlite3.Error:
+            # The corrected paths are still used for this request.
+            pass
 
     def _save_registration(self, row: dict[str, Any]) -> dict[str, Any]:
         # Serialize first registration across processes, including two requests
@@ -139,7 +165,12 @@ class WorkspaceCatalogMixin:
             return None
         with self._catalog_connection() as conn:
             row = conn.execute("SELECT value FROM metadata WHERE key = ?", (key,)).fetchone()
-        return json.loads(row[0]) if row else None
+        value = json.loads(row[0]) if row else None
+        if key == "root" and isinstance(value, str):
+            from pathmind.services.workspace.relocate import relocate_stale_path
+
+            value = relocate_stale_path(value) or value
+        return value
 
     def _builtin_id(self, kind: str) -> str:
         return f"ws_{uuid.uuid5(uuid.NAMESPACE_URL, f'{_owner_id()}:workspace:{kind}').hex}"
