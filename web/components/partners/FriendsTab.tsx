@@ -2,11 +2,16 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useTranslation } from "react-i18next";
 import {
   Bot,
   Check,
   Copy,
   DoorOpen,
+  LogIn,
+  MessageSquare,
+  Plus,
   Radio,
   Search,
   Share2,
@@ -21,6 +26,7 @@ import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import {
   cancelFriendRequest,
   closeStudyRoom,
+  createStudyRoom,
   fetchFriendRequests,
   fetchFriendsList,
   fetchMyRooms,
@@ -42,9 +48,9 @@ import {
 
 const card = "rounded-2xl border border-[var(--border)] bg-[var(--card)] p-5";
 const input =
-  "flex-1 rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm text-[var(--foreground)] outline-none focus:border-[var(--ring)]";
+  "min-w-0 flex-1 rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm text-[var(--foreground)] outline-none focus:border-[var(--ring)]";
 const primaryBtn =
-  "inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:opacity-90 disabled:opacity-50";
+  "inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:opacity-90 disabled:opacity-50";
 const ghostBtn =
   "rounded-md p-1.5 text-[var(--muted-foreground)] hover:bg-muted hover:text-[var(--foreground)]";
 
@@ -53,7 +59,19 @@ type Confirm =
   | { kind: "leave"; room: StudyRoomItem }
   | null;
 
-export default function FriendsTab() {
+export interface RoomPartnerOption {
+  partner_id: string;
+  name: string;
+}
+
+export default function FriendsTab({
+  partners = [],
+}: {
+  /** Partners the user manages — any of them can be bound to a new room. */
+  partners?: RoomPartnerOption[];
+}) {
+  const { t } = useTranslation();
+  const router = useRouter();
   const [friends, setFriends] = useState<FriendItem[]>([]);
   const [incoming, setIncoming] = useState<PendingFriendRequest[]>([]);
   const [sent, setSent] = useState<SentFriendRequest[]>([]);
@@ -66,6 +84,9 @@ export default function FriendsTab() {
 
   const [target, setTarget] = useState("");
   const [sending, setSending] = useState(false);
+  const [roomName, setRoomName] = useState("");
+  const [roomPartner, setRoomPartner] = useState("");
+  const [creating, setCreating] = useState(false);
   const [roomCode, setRoomCode] = useState("");
   const [joining, setJoining] = useState(false);
   const [copied, setCopied] = useState("");
@@ -88,13 +109,11 @@ export default function FriendsTab() {
       setRooms(r);
       setError("");
     } catch (e) {
-      setError(
-        e instanceof Error ? e.message : "Không tải được dữ liệu bạn bè",
-      );
+      setError(e instanceof Error ? e.message : t("Could not load your friends"));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     void refresh();
@@ -107,9 +126,12 @@ export default function FriendsTab() {
       if (ok) setNotice(ok);
       await refresh();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Thao tác thất bại");
+      setError(e instanceof Error ? e.message : t("Action failed"));
     }
   };
+
+  const openRoom = (code: string) =>
+    router.push(`/partners/rooms/${encodeURIComponent(code)}`);
 
   async function handleSend(e: React.FormEvent) {
     e.preventDefault();
@@ -123,27 +145,47 @@ export default function FriendsTab() {
     setSending(false);
   }
 
+  async function handleCreate(e: React.FormEvent) {
+    e.preventDefault();
+    if (!roomName.trim()) return;
+    setCreating(true);
+    setError("");
+    try {
+      const room = await createStudyRoom(roomName.trim(), roomPartner || undefined);
+      openRoom(room.room_code);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t("Could not create the room"));
+      setCreating(false);
+    }
+  }
+
   async function handleJoin(e: React.FormEvent) {
     e.preventDefault();
     if (!roomCode.trim()) return;
     setJoining(true);
-    await run(async () => {
+    setError("");
+    try {
       const room = await joinStudyRoom(roomCode);
-      setNotice(`Đã vào phòng "${room.room_name}".`);
-      setRoomCode("");
-    });
-    setJoining(false);
+      openRoom(room.room_code);
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : t("Room code not found or the room is closed"),
+      );
+      setJoining(false);
+    }
   }
 
   async function handleConfirm() {
     if (!confirm) return;
     setBusy(true);
     if (confirm.kind === "unfriend") {
-      await run(() => removeFriend(confirm.friend.user_id), "Đã huỷ kết bạn.");
+      await run(() => removeFriend(confirm.friend.user_id), t("Friend removed."));
     } else if (confirm.room.is_host) {
-      await run(() => closeStudyRoom(confirm.room.room_code), "Đã đóng phòng.");
+      await run(() => closeStudyRoom(confirm.room.room_code), t("Room closed."));
     } else {
-      await run(() => leaveStudyRoom(confirm.room.room_code), "Đã rời phòng.");
+      await run(() => leaveStudyRoom(confirm.room.room_code), t("You left the room."));
     }
     setBusy(false);
     setConfirm(null);
@@ -158,7 +200,7 @@ export default function FriendsTab() {
   if (loading) {
     return (
       <div className="py-16 text-center text-sm text-[var(--muted-foreground)]">
-        Đang tải...
+        {t("Loading...")}
       </div>
     );
   }
@@ -176,80 +218,69 @@ export default function FriendsTab() {
           <span className="flex-1">{error || notice}</span>
           <button
             onClick={() => (error ? setError("") : setNotice(""))}
-            aria-label="Đóng"
+            aria-label={t("Close")}
           >
             <X size={14} />
           </button>
         </div>
       )}
 
+      {/* Study rooms: create / join */}
       <div className="grid gap-5 md:grid-cols-2">
-        {/* Add friend */}
-        <div className={card}>
-          <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold text-[var(--foreground)]">
-            <UserPlus size={16} className="text-primary" /> Thêm bạn
+        <div className={`${card} border-primary/30`}>
+          <h3 className="mb-1 flex items-center gap-2 text-sm font-semibold text-[var(--foreground)]">
+            <Plus size={16} className="text-primary" /> {t("Create a study room")}
           </h3>
-          <form onSubmit={handleSend} className="flex gap-2">
-            <div className="relative flex flex-1">
-              <Search
-                size={14}
-                className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[var(--muted-foreground)]"
-              />
-              <input
-                value={target}
-                onChange={(e) => setTarget(e.target.value)}
-                placeholder="Tên đăng nhập hoặc email"
-                className={`${input} pl-8`}
-              />
+          <p className="mb-3 text-xs text-[var(--muted-foreground)]">
+            {t(
+              "Chat together in real time and invite friends with the room code. Add one of your Partners so anyone in the room can ask it.",
+            )}
+          </p>
+          <form onSubmit={handleCreate} className="space-y-2">
+            <input
+              value={roomName}
+              onChange={(e) => setRoomName(e.target.value)}
+              placeholder={t("Room name, e.g. Physics revision")}
+              maxLength={120}
+              className={`${input} w-full`}
+            />
+            <div className="flex gap-2">
+              <select
+                value={roomPartner}
+                onChange={(e) => setRoomPartner(e.target.value)}
+                className={input}
+                aria-label={t("Room Partner")}
+              >
+                <option value="">{t("No Partner (people only)")}</option>
+                {partners.map((p) => (
+                  <option key={p.partner_id} value={p.partner_id}>
+                    {p.name}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="submit"
+                disabled={creating || !roomName.trim()}
+                className={primaryBtn}
+              >
+                <Plus size={14} /> {t("Create room")}
+              </button>
             </div>
-            <button
-              type="submit"
-              disabled={sending || !target.trim()}
-              className={primaryBtn}
-            >
-              Gửi
-            </button>
           </form>
-          {sent.length > 0 && (
-            <div className="mt-4">
-              <div className="mb-1.5 text-xs text-[var(--muted-foreground)]">
-                Đã gửi, chờ phản hồi
-              </div>
-              {sent.map((r) => (
-                <div
-                  key={r.request_id}
-                  className="flex items-center justify-between py-1 text-sm"
-                >
-                  <span className="text-[var(--foreground)]">
-                    {r.target_username}
-                  </span>
-                  <button
-                    onClick={() =>
-                      void run(
-                        () => cancelFriendRequest(r.request_id),
-                        "Đã huỷ lời mời.",
-                      )
-                    }
-                    className="text-xs text-[var(--muted-foreground)] hover:text-destructive"
-                  >
-                    Huỷ
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
         </div>
 
-        {/* Join room */}
         <div className={card}>
-          <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold text-[var(--foreground)]">
-            <Radio size={16} className="text-primary" /> Vào phòng học chung
+          <h3 className="mb-1 flex items-center gap-2 text-sm font-semibold text-[var(--foreground)]">
+            <LogIn size={16} className="text-primary" /> {t("Join with a code")}
           </h3>
+          <p className="mb-3 text-xs text-[var(--muted-foreground)]">
+            {t("Ask the host for the 6-character room code.")}
+          </p>
           <form onSubmit={handleJoin} className="flex gap-2">
             <input
               value={roomCode}
               onChange={(e) => setRoomCode(e.target.value.toUpperCase())}
-              placeholder="Mã phòng 6 ký tự"
+              placeholder={t("Room code")}
               maxLength={12}
               className={`${input} font-mono uppercase tracking-widest`}
             />
@@ -258,188 +289,21 @@ export default function FriendsTab() {
               disabled={joining || !roomCode.trim()}
               className={primaryBtn}
             >
-              Vào phòng
+              {t("Join")}
             </button>
           </form>
-          <p className="mt-2 text-xs text-[var(--muted-foreground)]">
-            Phòng được tạo từ nút &quot;Chia sẻ&quot; trong trang cấu hình
-            Partner. Thành viên phòng được trò chuyện với Partner của phòng (mỗi
-            người một cuộc trò chuyện riêng).
-          </p>
         </div>
       </div>
 
-      {/* Incoming requests */}
-      {incoming.length > 0 && (
-        <div className={card}>
-          <h3 className="mb-3 text-sm font-semibold text-[var(--foreground)]">
-            Lời mời kết bạn ({incoming.length})
-          </h3>
-          {incoming.map((r) => (
-            <div
-              key={r.request_id}
-              className="flex items-center justify-between border-t border-[var(--border)] py-2 first:border-0"
-            >
-              <span className="text-sm font-medium text-[var(--foreground)]">
-                {r.requester_username}
-              </span>
-              <div className="flex gap-1">
-                <button
-                  title="Đồng ý"
-                  onClick={() =>
-                    void run(
-                      () => respondFriendRequest(r.request_id, "accept"),
-                      "Đã kết bạn.",
-                    )
-                  }
-                  className="rounded-md p-1.5 text-success hover:bg-success-surface"
-                >
-                  <Check size={16} />
-                </button>
-                <button
-                  title="Từ chối"
-                  onClick={() =>
-                    void run(() => respondFriendRequest(r.request_id, "reject"))
-                  }
-                  className={ghostBtn}
-                >
-                  <X size={16} />
-                </button>
-                <button
-                  title="Chặn"
-                  onClick={() =>
-                    void run(
-                      () => respondFriendRequest(r.request_id, "block"),
-                      "Đã chặn người dùng.",
-                    )
-                  }
-                  className="rounded-md p-1.5 text-[var(--muted-foreground)] hover:bg-destructive/10 hover:text-destructive"
-                >
-                  <ShieldOff size={16} />
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* Friends */}
+      {/* My rooms */}
       <div className={card}>
         <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold text-[var(--foreground)]">
-          <Users size={16} className="text-primary" /> Bạn bè ({friends.length})
-        </h3>
-        {friends.length === 0 ? (
-          <p className="text-sm text-[var(--muted-foreground)]">
-            Chưa có bạn bè. Gửi lời mời bằng tên đăng nhập ở trên.
-          </p>
-        ) : (
-          friends.map((f) => (
-            <div
-              key={f.user_id}
-              className="flex items-center justify-between border-t border-[var(--border)] py-2 first:border-0"
-            >
-              <div className="flex items-center gap-2.5">
-                <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/15 text-sm font-semibold text-primary">
-                  {(f.username || "?")[0]?.toUpperCase()}
-                </div>
-                <div>
-                  <div className="text-sm font-medium text-[var(--foreground)]">
-                    {f.username}
-                  </div>
-                  <div className="flex items-center gap-1 text-[10px] text-[var(--muted-foreground)]">
-                    <UserCheck size={10} /> Bạn bè
-                  </div>
-                </div>
-              </div>
-              <button
-                title="Huỷ kết bạn"
-                onClick={() => setConfirm({ kind: "unfriend", friend: f })}
-                className={ghostBtn}
-              >
-                <UserMinus size={15} />
-              </button>
-            </div>
-          ))
-        )}
-        {blocked.length > 0 && (
-          <div className="mt-4 border-t border-[var(--border)] pt-3">
-            <div className="mb-1.5 text-xs text-[var(--muted-foreground)]">
-              Đã chặn
-            </div>
-            {blocked.map((b) => (
-              <div
-                key={b.request_id}
-                className="flex items-center justify-between py-1 text-sm"
-              >
-                <span className="text-[var(--foreground)]">{b.username}</span>
-                <button
-                  onClick={() =>
-                    void run(
-                      () => cancelFriendRequest(b.request_id),
-                      "Đã bỏ chặn.",
-                    )
-                  }
-                  className="text-xs text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
-                >
-                  Bỏ chặn
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* Shared partners */}
-      <div className={card}>
-        <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold text-[var(--foreground)]">
-          <Share2 size={16} className="text-primary" /> Partner bạn bè chia sẻ (
-          {shared.length})
-        </h3>
-        {shared.length === 0 ? (
-          <p className="text-sm text-[var(--muted-foreground)]">
-            Chưa có Partner nào được chia sẻ với bạn.
-          </p>
-        ) : (
-          shared.map((sp) => (
-            <div
-              key={sp.share_id}
-              className="flex items-center justify-between border-t border-[var(--border)] py-2 first:border-0"
-            >
-              <Link
-                href={`/partners/${encodeURIComponent(sp.partner_id)}`}
-                className="flex items-center gap-2.5 hover:underline"
-              >
-                <Bot size={16} className="text-primary" />
-                <div>
-                  <div className="text-sm font-medium text-[var(--foreground)]">
-                    {sp.partner_name}
-                  </div>
-                  <div className="text-[10px] text-[var(--muted-foreground)]">
-                    từ {sp.owner_username}
-                  </div>
-                </div>
-              </Link>
-              <button
-                title="Gỡ khỏi danh sách"
-                onClick={() => void run(() => revokePartnerShare(sp.share_id))}
-                className={ghostBtn}
-              >
-                <X size={15} />
-              </button>
-            </div>
-          ))
-        )}
-      </div>
-
-      {/* Rooms */}
-      <div className={card}>
-        <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold text-[var(--foreground)]">
-          <Radio size={16} className="text-primary" /> Phòng học của tôi (
-          {rooms.length})
+          <Radio size={16} className="text-primary" />{" "}
+          {t("My study rooms ({{count}})", { count: rooms.length })}
         </h3>
         {rooms.length === 0 ? (
           <p className="text-sm text-[var(--muted-foreground)]">
-            Bạn chưa ở trong phòng học nào.
+            {t("You're not in any study room yet. Create one above or join with a code.")}
           </p>
         ) : (
           rooms.map((room) => (
@@ -448,13 +312,14 @@ export default function FriendsTab() {
               className="border-t border-[var(--border)] py-3 first:border-0"
             >
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <div>
+                <div className="min-w-0">
                   <div className="text-sm font-semibold text-[var(--foreground)]">
                     {room.room_name}
                   </div>
-                  <div className="flex items-center gap-2 text-xs text-[var(--muted-foreground)]">
+                  <div className="flex flex-wrap items-center gap-x-2 text-xs text-[var(--muted-foreground)]">
                     <button
                       onClick={() => copyCode(room.room_code)}
+                      title={t("Copy room code")}
                       className="inline-flex items-center gap-1 font-mono hover:text-[var(--foreground)]"
                     >
                       {room.room_code}{" "}
@@ -464,27 +329,29 @@ export default function FriendsTab() {
                         <Copy size={11} />
                       )}
                     </button>
-                    · chủ phòng {room.host_username}
+                    <span>· {t("Host: {{name}}", { name: room.host_username })}</span>
                     {room.partner_id && (
-                      <>
-                        {" · "}
-                        <Link
-                          href={`/partners/${encodeURIComponent(room.partner_id)}`}
-                          className="text-primary hover:underline"
-                        >
-                          {room.partner_name || room.partner_id}
-                        </Link>
-                      </>
+                      <span className="inline-flex items-center gap-1">
+                        · <Bot size={11} /> {room.partner_name || room.partner_id}
+                      </span>
                     )}
                   </div>
                 </div>
-                <button
-                  onClick={() => setConfirm({ kind: "leave", room })}
-                  className="inline-flex items-center gap-1 rounded-lg border border-[var(--border)] px-2.5 py-1 text-xs text-[var(--muted-foreground)] hover:text-destructive"
-                >
-                  <DoorOpen size={13} />{" "}
-                  {room.is_host ? "Đóng phòng" : "Rời phòng"}
-                </button>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    onClick={() => openRoom(room.room_code)}
+                    className="inline-flex items-center gap-1 rounded-lg bg-primary px-2.5 py-1 text-xs font-medium text-primary-foreground hover:opacity-90"
+                  >
+                    <MessageSquare size={13} /> {t("Open chat")}
+                  </button>
+                  <button
+                    onClick={() => setConfirm({ kind: "leave", room })}
+                    className="inline-flex items-center gap-1 rounded-lg border border-[var(--border)] px-2.5 py-1 text-xs text-[var(--muted-foreground)] hover:text-destructive"
+                  >
+                    <DoorOpen size={13} />{" "}
+                    {room.is_host ? t("Close room") : t("Leave room")}
+                  </button>
+                </div>
               </div>
               <div className="mt-2 flex flex-wrap gap-1.5">
                 {room.members.map((m) => (
@@ -494,15 +361,13 @@ export default function FriendsTab() {
                   >
                     {m.username}
                     {m.role === "host" && (
-                      <span className="text-[10px] text-primary">chủ</span>
+                      <span className="text-[10px] text-primary">{t("host")}</span>
                     )}
                     {room.is_host && m.role !== "host" && (
                       <button
-                        title="Mời ra khỏi phòng"
+                        title={t("Remove from room")}
                         onClick={() =>
-                          void run(() =>
-                            removeRoomMember(room.room_code, m.user_id),
-                          )
+                          void run(() => removeRoomMember(room.room_code, m.user_id))
                         }
                         className="text-[var(--muted-foreground)] hover:text-destructive"
                       >
@@ -517,26 +382,235 @@ export default function FriendsTab() {
         )}
       </div>
 
+      {/* Incoming requests */}
+      {incoming.length > 0 && (
+        <div className={card}>
+          <h3 className="mb-3 text-sm font-semibold text-[var(--foreground)]">
+            {t("Friend requests ({{count}})", { count: incoming.length })}
+          </h3>
+          {incoming.map((r) => (
+            <div
+              key={r.request_id}
+              className="flex items-center justify-between border-t border-[var(--border)] py-2 first:border-0"
+            >
+              <span className="text-sm font-medium text-[var(--foreground)]">
+                {r.requester_username}
+              </span>
+              <div className="flex gap-1">
+                <button
+                  title={t("Accept")}
+                  onClick={() =>
+                    void run(
+                      () => respondFriendRequest(r.request_id, "accept"),
+                      t("You are now friends."),
+                    )
+                  }
+                  className="rounded-md p-1.5 text-success hover:bg-success-surface"
+                >
+                  <Check size={16} />
+                </button>
+                <button
+                  title={t("Decline")}
+                  onClick={() =>
+                    void run(() => respondFriendRequest(r.request_id, "reject"))
+                  }
+                  className={ghostBtn}
+                >
+                  <X size={16} />
+                </button>
+                <button
+                  title={t("Block")}
+                  onClick={() =>
+                    void run(
+                      () => respondFriendRequest(r.request_id, "block"),
+                      t("User blocked."),
+                    )
+                  }
+                  className="rounded-md p-1.5 text-[var(--muted-foreground)] hover:bg-destructive/10 hover:text-destructive"
+                >
+                  <ShieldOff size={16} />
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className="grid gap-5 md:grid-cols-2">
+        {/* Friends */}
+        <div className={card}>
+          <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold text-[var(--foreground)]">
+            <Users size={16} className="text-primary" />{" "}
+            {t("Friends ({{count}})", { count: friends.length })}
+          </h3>
+          <form onSubmit={handleSend} className="mb-3 flex gap-2">
+            <div className="relative flex min-w-0 flex-1">
+              <Search
+                size={14}
+                className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[var(--muted-foreground)]"
+              />
+              <input
+                value={target}
+                onChange={(e) => setTarget(e.target.value)}
+                placeholder={t("Username or email")}
+                className={`${input} pl-8`}
+              />
+            </div>
+            <button
+              type="submit"
+              disabled={sending || !target.trim()}
+              className={primaryBtn}
+            >
+              <UserPlus size={14} /> {t("Add friend")}
+            </button>
+          </form>
+          {friends.length === 0 ? (
+            <p className="text-sm text-[var(--muted-foreground)]">
+              {t("No friends yet. Send a request by username above.")}
+            </p>
+          ) : (
+            friends.map((f) => (
+              <div
+                key={f.user_id}
+                className="flex items-center justify-between border-t border-[var(--border)] py-2 first:border-0"
+              >
+                <div className="flex items-center gap-2.5">
+                  <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/15 text-sm font-semibold text-primary">
+                    {(f.username || "?")[0]?.toUpperCase()}
+                  </div>
+                  <div>
+                    <div className="text-sm font-medium text-[var(--foreground)]">
+                      {f.username}
+                    </div>
+                    <div className="flex items-center gap-1 text-[10px] text-[var(--muted-foreground)]">
+                      <UserCheck size={10} /> {t("Friend")}
+                    </div>
+                  </div>
+                </div>
+                <button
+                  title={t("Remove friend")}
+                  onClick={() => setConfirm({ kind: "unfriend", friend: f })}
+                  className={ghostBtn}
+                >
+                  <UserMinus size={15} />
+                </button>
+              </div>
+            ))
+          )}
+          {sent.length > 0 && (
+            <div className="mt-4 border-t border-[var(--border)] pt-3">
+              <div className="mb-1.5 text-xs text-[var(--muted-foreground)]">
+                {t("Sent, waiting for a reply")}
+              </div>
+              {sent.map((r) => (
+                <div
+                  key={r.request_id}
+                  className="flex items-center justify-between py-1 text-sm"
+                >
+                  <span className="text-[var(--foreground)]">{r.target_username}</span>
+                  <button
+                    onClick={() =>
+                      void run(
+                        () => cancelFriendRequest(r.request_id),
+                        t("Request canceled."),
+                      )
+                    }
+                    className="text-xs text-[var(--muted-foreground)] hover:text-destructive"
+                  >
+                    {t("Cancel")}
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+          {blocked.length > 0 && (
+            <div className="mt-4 border-t border-[var(--border)] pt-3">
+              <div className="mb-1.5 text-xs text-[var(--muted-foreground)]">
+                {t("Blocked")}
+              </div>
+              {blocked.map((b) => (
+                <div
+                  key={b.request_id}
+                  className="flex items-center justify-between py-1 text-sm"
+                >
+                  <span className="text-[var(--foreground)]">{b.username}</span>
+                  <button
+                    onClick={() =>
+                      void run(() => cancelFriendRequest(b.request_id), t("User unblocked."))
+                    }
+                    className="text-xs text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
+                  >
+                    {t("Unblock")}
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Shared partners */}
+        <div className={card}>
+          <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold text-[var(--foreground)]">
+            <Share2 size={16} className="text-primary" />{" "}
+            {t("Shared with me ({{count}})", { count: shared.length })}
+          </h3>
+          {shared.length === 0 ? (
+            <p className="text-sm text-[var(--muted-foreground)]">
+              {t("No Partners have been shared with you yet.")}
+            </p>
+          ) : (
+            shared.map((sp) => (
+              <div
+                key={sp.share_id}
+                className="flex items-center justify-between border-t border-[var(--border)] py-2 first:border-0"
+              >
+                <Link
+                  href={`/partners/${encodeURIComponent(sp.partner_id)}`}
+                  className="flex items-center gap-2.5 hover:underline"
+                >
+                  <Bot size={16} className="text-primary" />
+                  <div>
+                    <div className="text-sm font-medium text-[var(--foreground)]">
+                      {sp.partner_name}
+                    </div>
+                    <div className="text-[10px] text-[var(--muted-foreground)]">
+                      {t("from {{name}}", { name: sp.owner_username })}
+                    </div>
+                  </div>
+                </Link>
+                <button
+                  title={t("Remove from my list")}
+                  onClick={() => void run(() => revokePartnerShare(sp.share_id))}
+                  className={ghostBtn}
+                >
+                  <X size={15} />
+                </button>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+
       <ConfirmDialog
         open={confirm !== null}
         title={
           confirm?.kind === "unfriend"
-            ? "Huỷ kết bạn?"
+            ? t("Remove this friend?")
             : confirm?.room.is_host
-              ? "Đóng phòng học?"
-              : "Rời phòng học?"
+              ? t("Close this study room?")
+              : t("Leave this study room?")
         }
         tone="danger"
-        confirmLabel="Xác nhận"
+        confirmLabel={t("Confirm")}
         busy={busy}
         onConfirm={() => void handleConfirm()}
         onCancel={() => setConfirm(null)}
       >
         {confirm?.kind === "unfriend"
-          ? `Các Partner hai bạn chia sẻ cho nhau cũng sẽ bị gỡ.`
+          ? t("Partners you shared with each other will be unshared too.")
           : confirm?.room.is_host
-            ? "Mọi thành viên sẽ mất quyền dùng Partner của phòng."
-            : "Bạn sẽ mất quyền dùng Partner của phòng này."}
+            ? t("Every member loses the room chat and access to the room's Partner.")
+            : t("You will lose the room chat and access to the room's Partner.")}
       </ConfirmDialog>
     </div>
   );

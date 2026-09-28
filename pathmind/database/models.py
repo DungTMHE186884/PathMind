@@ -13,6 +13,7 @@ from sqlalchemy import (
     ForeignKey,
     Integer,
     String,
+    Text,
     UniqueConstraint,
 )
 from sqlalchemy.orm import relationship
@@ -243,6 +244,19 @@ class RoomMember(Base):
     room = relationship("SharedRoom", back_populates="members")
 
 
+class RoomMessage(Base):
+    """One line of a study room's shared chat (a member, the room's Partner, or a system note)."""
+
+    __tablename__ = "room_messages"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)  # monotonic → ``?after=`` polling
+    room_id = Column(String(36), ForeignKey("shared_rooms.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id = Column(String(36), nullable=True)  # None for partner / system lines
+    role = Column(String(20), nullable=False, default="user")  # "user" | "partner" | "system"
+    content = Column(Text, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
 class EmailVerification(Base):
     """One-time 6-digit code sent to confirm a user's email address."""
 
@@ -256,3 +270,128 @@ class EmailVerification(Base):
     expires_at = Column(DateTime, nullable=False)
     used_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+
+# ---------------------------------------------------------------------------
+# Community: shared skill hub + forum (api/routers/community.py)
+# ---------------------------------------------------------------------------
+
+
+class CommunitySkill(Base):
+    """A skill package a user shared with everyone (``SKILL.md`` + text support files)."""
+
+    __tablename__ = "community_skills"
+
+    id = Column(String(36), primary_key=True, default=_gen_uuid)
+    slug = Column(String(64), unique=True, index=True, nullable=False)
+    title = Column(String(120), nullable=False)
+    description = Column(String(500), nullable=False, default="")
+    category = Column(String(40), nullable=False, default="other", index=True)
+    tags = Column(JSON, default=list)
+    content = Column(Text, nullable=False)  # full SKILL.md (frontmatter + body)
+    files = Column(JSON, default=dict)  # {"references/x.md": "text", ...}
+    author_id = Column(String(36), nullable=False, index=True)
+    version = Column(Integer, nullable=False, default=1)
+    install_count = Column(Integer, nullable=False, default=0)
+    like_count = Column(Integer, nullable=False, default=0)
+    is_hidden = Column(Boolean, nullable=False, default=False)  # removed by a moderator
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow)
+
+
+class CommunitySkillInstall(Base):
+    """One row per (skill, user) so ``install_count`` counts people, not clicks."""
+
+    __tablename__ = "community_skill_installs"
+    __table_args__ = (UniqueConstraint("skill_id", "user_id", name="uq_community_install"),)
+
+    id = Column(String(36), primary_key=True, default=_gen_uuid)
+    skill_id = Column(String(36), ForeignKey("community_skills.id", ondelete="CASCADE"), nullable=False)
+    user_id = Column(String(36), nullable=False, index=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class ForumPost(Base):
+    __tablename__ = "forum_posts"
+
+    id = Column(String(36), primary_key=True, default=_gen_uuid)
+    author_id = Column(String(36), nullable=False, index=True)
+    category = Column(String(40), nullable=False, default="general", index=True)
+    title = Column(String(300), nullable=False)
+    body = Column(Text, nullable=False, default="")
+    skill_id = Column(String(36), nullable=True)  # optional linked community skill
+    score = Column(Integer, nullable=False, default=0)
+    comment_count = Column(Integer, nullable=False, default=0)
+    is_pinned = Column(Boolean, nullable=False, default=False)
+    is_locked = Column(Boolean, nullable=False, default=False)
+    is_deleted = Column(Boolean, nullable=False, default=False)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+    updated_at = Column(DateTime, default=datetime.utcnow)
+    edited_at = Column(DateTime, nullable=True)
+
+
+class ForumComment(Base):
+    __tablename__ = "forum_comments"
+
+    id = Column(String(36), primary_key=True, default=_gen_uuid)
+    post_id = Column(String(36), ForeignKey("forum_posts.id", ondelete="CASCADE"), nullable=False, index=True)
+    parent_id = Column(String(36), nullable=True)
+    author_id = Column(String(36), nullable=False)
+    body = Column(Text, nullable=False)
+    score = Column(Integer, nullable=False, default=0)
+    is_deleted = Column(Boolean, nullable=False, default=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    edited_at = Column(DateTime, nullable=True)
+
+
+class CommunityVote(Base):
+    """Votes on posts / comments (±1) and likes on skills (+1)."""
+
+    __tablename__ = "community_votes"
+    __table_args__ = (
+        UniqueConstraint("target_type", "target_id", "user_id", name="uq_community_vote"),
+    )
+
+    id = Column(String(36), primary_key=True, default=_gen_uuid)
+    target_type = Column(String(16), nullable=False)  # "post" | "comment" | "skill"
+    target_id = Column(String(36), nullable=False, index=True)
+    user_id = Column(String(36), nullable=False, index=True)
+    value = Column(Integer, nullable=False, default=1)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class CommunityReport(Base):
+    """A user flagging a post / comment / skill for moderators."""
+
+    __tablename__ = "community_reports"
+    __table_args__ = (
+        UniqueConstraint("target_type", "target_id", "reporter_id", name="uq_community_report"),
+    )
+
+    id = Column(String(36), primary_key=True, default=_gen_uuid)
+    target_type = Column(String(16), nullable=False)  # "post" | "comment" | "skill"
+    target_id = Column(String(36), nullable=False, index=True)
+    reporter_id = Column(String(36), nullable=False)
+    reason = Column(String(32), nullable=False, default="other")
+    details = Column(String(500), nullable=False, default="")
+    status = Column(String(16), nullable=False, default="open", index=True)  # open | dismissed | removed
+    resolved_by = Column(String(36), nullable=True)
+    resolved_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class CommunityNotification(Base):
+    """In-app notice: a reply to my post/comment, my skill added, my content removed."""
+
+    __tablename__ = "community_notifications"
+
+    id = Column(String(36), primary_key=True, default=_gen_uuid)
+    user_id = Column(String(36), nullable=False, index=True)  # recipient
+    kind = Column(String(32), nullable=False)
+    actor_id = Column(String(36), nullable=True)
+    post_id = Column(String(36), nullable=True)
+    comment_id = Column(String(36), nullable=True)
+    skill_id = Column(String(36), nullable=True)
+    preview = Column(String(300), nullable=False, default="")
+    read_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)

@@ -46,7 +46,14 @@ export default function PartnersPage() {
 
   useEffect(() => {
     let cancelled = false;
+    // `/partners?tab=friends` (e.g. back from a study room) opens that tab.
+    const wantsFriends =
+      new URLSearchParams(window.location.search).get("tab") === "friends";
     void (async () => {
+      if (wantsFriends) {
+        await Promise.resolve();
+        if (!cancelled) setActiveTab("friends");
+      }
       const [partnerList, groupList] = await Promise.all([
         listPartners().catch(() => [] as PartnerInfo[]),
         listPartnerGroups().catch(() => [] as PartnerGroup[]),
@@ -111,12 +118,16 @@ export default function PartnersPage() {
           }`}
         >
           <Users className="h-4 w-4" />
-          {t("Bạn Bè & Học Nhóm Multiplayer")}
+          {t("Friends & Study Rooms")}
         </button>
       </div>
 
       {activeTab === "friends" ? (
-        <FriendsTab />
+        <FriendsTab
+          partners={partners
+            .filter((partner) => partner.can_manage !== false)
+            .map((partner) => ({ partner_id: partner.partner_id, name: partner.name }))}
+        />
       ) : loading ? (
         <div className="flex min-h-[320px] items-center justify-center">
           <Loader2 className="h-5 w-5 animate-spin text-[var(--muted-foreground)]" />

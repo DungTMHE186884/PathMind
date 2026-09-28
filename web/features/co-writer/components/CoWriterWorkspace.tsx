@@ -43,6 +43,7 @@ import {
   NotebookPen,
   Quote,
   Redo2,
+  Share2,
   Strikethrough,
   Table2,
   Undo2,
@@ -84,6 +85,11 @@ const MarkdownRenderer = dynamic(
 
 const SaveToNotebookModal = dynamic(
   () => import("@/components/notebook/SaveToNotebookModal"),
+  { ssr: false },
+);
+
+const PublishSkillModal = dynamic(
+  () => import("@/components/community/PublishSkillModal"),
   { ssr: false },
 );
 
@@ -186,6 +192,7 @@ export default function CoWriterWorkspace({ docId }: CoWriterWorkspaceProps) {
   const [isLoadingDoc, setIsLoadingDoc] = useState(true);
   const [isSavingDoc, setIsSavingDoc] = useState(false);
   const [isExportingDocx, setIsExportingDocx] = useState(false);
+  const [shareSkillOpen, setShareSkillOpen] = useState(false);
   const [lastSavedAt, setLastSavedAt] = useState<number | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const previewScrollRef = useRef<HTMLDivElement>(null);
@@ -1765,6 +1772,12 @@ export default function CoWriterWorkspace({ docId }: CoWriterWorkspaceProps) {
             )}
           </ToolbarIconBtn>
           <ToolbarIconBtn
+            title={t("Share as a community skill")}
+            onClick={() => setShareSkillOpen(true)}
+          >
+            <Share2 size={17} strokeWidth={1.7} />
+          </ToolbarIconBtn>
+          <ToolbarIconBtn
             title={t("Save to Notebook")}
             onClick={handleOpenSaveToNotebook}
           >
@@ -2423,6 +2436,17 @@ export default function CoWriterWorkspace({ docId }: CoWriterWorkspaceProps) {
           setError("");
         }}
       />
+
+      {shareSkillOpen && (
+        <PublishSkillModal
+          initial={{ source: "text", content: markdown, title: docTitle }}
+          onClose={() => setShareSkillOpen(false)}
+          onDone={(skill) => {
+            setShareSkillOpen(false);
+            router.push(`/community/skills/${encodeURIComponent(skill.slug)}`);
+          }}
+        />
+      )}
     </div>
   );
 }

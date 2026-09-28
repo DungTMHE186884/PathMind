@@ -4,6 +4,7 @@ import {
   HeartHandshake,
   House,
   LayoutGrid,
+  MessagesSquare,
   PenLine,
   Settings,
   type LucideIcon,
@@ -52,6 +53,12 @@ export const PRIMARY_NAV: NavEntry[] = [
     icon: PenLine,
     tooltipKey: 'Co-Writer tooltip',
     requires: 'llm',
+  },
+  {
+    href: '/community',
+    label: 'Community',
+    icon: MessagesSquare,
+    tooltipKey: 'Community tooltip',
   },
 ]
 

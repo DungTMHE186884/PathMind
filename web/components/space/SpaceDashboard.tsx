@@ -80,13 +80,13 @@ interface DashboardItem {
    * was never installed (#963).
    */
   requiresCapability?: string;
+  /** Only administrators see this tile when sign-in is enabled. */
+  adminOnly?: boolean;
 }
 
 interface DashboardGroup {
   label: Lang;
   items: DashboardItem[];
-  /** Only administrators see this group when sign-in is enabled. */
-  adminOnly?: boolean;
 }
 
 const GROUPS: DashboardGroup[] = [
@@ -149,10 +149,10 @@ const GROUPS: DashboardGroup[] = [
   },
   {
     label: { zh: "个性化", en: "Personalization" },
-    adminOnly: true,
     items: [
       {
         key: "personas",
+        adminOnly: true,
         href: "/space/personas",
         icon: UserRound,
         title: { zh: "Personas", en: "Personas" },
@@ -179,6 +179,7 @@ const GROUPS: DashboardGroup[] = [
       },
       {
         key: "mcp",
+        adminOnly: true,
         href: "/space/mcp",
         icon: Plug,
         title: { zh: "MCP 服务", en: "MCP Services" },
@@ -195,6 +196,7 @@ const GROUPS: DashboardGroup[] = [
       },
       {
         key: "cli_apps",
+        adminOnly: true,
         href: "/space/cli-apps",
         icon: Terminal,
         title: { zh: "CLI 应用", en: "CLI Apps" },
@@ -212,6 +214,7 @@ const GROUPS: DashboardGroup[] = [
       },
       {
         key: "memory",
+        adminOnly: true,
         href: "/memory",
         icon: Brain,
         title: { zh: "记忆", en: "Memory" },
@@ -280,11 +283,18 @@ export default function SpaceDashboard() {
 
   const capabilityAvailable = useCapabilityFilter();
   const personalization = usePersonalizationAccess();
+  // Skills are every user's own (per-account); personas, MCP, CLI apps and
+  // memory stay admin-only when sign-in is enabled.
   const groups = useMemo(
     () =>
-      visibleGroups(GROUPS, capabilityAvailable).filter(
-        group => !group.adminOnly || personalization.allowed
-      ),
+      visibleGroups(GROUPS, capabilityAvailable)
+        .map(group => ({
+          ...group,
+          items: group.items.filter(
+            item => !item.adminOnly || personalization.allowed
+          ),
+        }))
+        .filter(group => group.items.length > 0),
     [capabilityAvailable, personalization.allowed]
   );
 
@@ -293,9 +303,9 @@ export default function SpaceDashboard() {
     // Each tile loads independently so one slow/failed endpoint never blanks
     // the whole dashboard.
     if (!personalization.ready) return;
-    const items = GROUPS.filter(
-      group => !group.adminOnly || personalization.allowed
-    ).flatMap(group => group.items);
+    const items = GROUPS.flatMap(group => group.items).filter(
+      item => !item.adminOnly || personalization.allowed
+    );
     for (const item of items) {
       if (!item.load) continue;
       item

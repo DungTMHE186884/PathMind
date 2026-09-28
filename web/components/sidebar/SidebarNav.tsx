@@ -33,6 +33,8 @@ import {
   isNavActive,
 } from "@/components/sidebar/nav-entries";
 import { Tooltip } from "@/components/ui/Tooltip";
+import { useAuthStatus } from "@/hooks/useAuthStatus";
+import { useCommunityUnread } from "@/hooks/useCommunityUnread";
 import { useDragSort, type DragSort } from "@/hooks/useDragSort";
 import { placeMenu, type FloatingMenuPosition } from "@/lib/floating-menu";
 import {
@@ -46,6 +48,13 @@ import {
 const MODULE_NAV_HREFS = PRIMARY_NAV_HREFS.filter((href) => href !== "/chat");
 
 const MENU_WIDTH = 210;
+const COMMUNITY_HREF = "/community";
+
+/** Unread Community notifications, once the account is known. */
+function useSignedInCommunityUnread(): number {
+  const { enabled, authenticated, loading } = useAuthStatus();
+  return useCommunityUnread(!loading && (!enabled || authenticated));
+}
 
 interface RowMenu {
   href: string;
@@ -71,6 +80,7 @@ export function SidebarNav({
   const pathname = usePathname();
   const { t } = useTranslation();
   const { has } = useCapabilityAccess();
+  const communityUnread = useSignedInCommunityUnread();
 
   const [layout, setLayout] = useState<SidebarNavLayout | null>(null);
   const [menu, setMenu] = useState<RowMenu | null>(null);
@@ -211,6 +221,14 @@ export function SidebarNav({
       <Fragment key={`${href}-content`}>
         <Icon size={15} strokeWidth={active ? 1.9 : 1.6} className="shrink-0" />
         <span className="min-w-0 flex-1 truncate">{label}</span>
+        {href === COMMUNITY_HREF && communityUnread > 0 ? (
+          <span
+            className="shrink-0 rounded-full bg-[var(--primary)] px-1.5 text-[10.5px] font-semibold leading-4 text-[var(--primary-foreground)]"
+            aria-label={t("{{count}} unread notifications", { count: communityUnread })}
+          >
+            {communityUnread > 99 ? "99+" : communityUnread}
+          </span>
+        ) : null}
         {locked ? (
           <Lock size={13} strokeWidth={1.8} className="shrink-0" />
         ) : null}
@@ -397,6 +415,7 @@ function RailRow({
   onHomeClick: (event: React.MouseEvent) => void;
 }) {
   const { t } = useTranslation();
+  const communityUnread = useSignedInCommunityUnread();
   const entry = NAV_BY_HREF.get(href);
   if (!entry) return null;
   const Icon = entry.icon;
@@ -439,6 +458,9 @@ function RailRow({
         }`}
       >
         <Icon size={18} strokeWidth={active ? 2 : 1.6} />
+        {href === COMMUNITY_HREF && communityUnread > 0 ? (
+          <span className="absolute right-1 top-1 h-2 w-2 rounded-full bg-[var(--primary)] ring-2 ring-[var(--background)]" />
+        ) : null}
       </Link>
     </Tooltip>
   );

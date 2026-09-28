@@ -500,6 +500,7 @@ from pathmind.api.routers import (
     capabilities,
     capabilities_settings,
     co_writer,
+    community,
     courses,
     dashboard,
     friends,
@@ -567,6 +568,7 @@ _admin = [Depends(require_admin)]
 app.include_router(billing.router, prefix="/api/billing", tags=["billing"])
 app.include_router(friends.router, prefix="/api/friends", tags=["friends"], dependencies=_auth)
 app.include_router(partner_shares.router, prefix="/api/social", tags=["social"], dependencies=_auth)
+app.include_router(community.router, prefix="/api/community", tags=["community"], dependencies=_auth)
 app.include_router(admin_dashboard.router, prefix="/api/admin", tags=["admin"], dependencies=_admin)
 
 app.include_router(

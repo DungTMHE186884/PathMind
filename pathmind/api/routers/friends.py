@@ -25,6 +25,7 @@ from sqlalchemy.orm import Session
 from pathmind.database.connection import get_db
 from pathmind.database.models import Friendship, User
 from pathmind.multi_user.context import get_current_user
+from pathmind.services.i18n import t as _t
 from pathmind.services.quota_service import ensure_db_user
 
 logger = logging.getLogger(__name__)
@@ -98,7 +99,7 @@ def _resolve_target(db: Session, query: str) -> tuple[str, str]:
     row = db.query(User).filter(User.email == q).first()
     if row:
         return row.id, row.username
-    raise HTTPException(status_code=404, detail="Không tìm thấy người dùng với tên hoặc email này.")
+    raise HTTPException(status_code=404, detail=_t("social.user_not_found"))
 
 
 @router.get("/list")
@@ -146,7 +147,7 @@ async def pending_requests(db: Session = Depends(get_db)) -> dict[str, Any]:
             {
                 "request_id": r.id,
                 "requester_id": r.user_id,
-                "requester_username": users.get(r.user_id, {}).get("username", "(đã xoá)"),
+                "requester_username": users.get(r.user_id, {}).get("username", _t("social.deleted_user")),
                 "created_at": _iso(r.created_at),
             }
             for r in incoming
@@ -155,7 +156,7 @@ async def pending_requests(db: Session = Depends(get_db)) -> dict[str, Any]:
             {
                 "request_id": r.id,
                 "target_id": r.friend_id,
-                "target_username": users.get(r.friend_id, {}).get("username", "(đã xoá)"),
+                "target_username": users.get(r.friend_id, {}).get("username", _t("social.deleted_user")),
                 "created_at": _iso(r.created_at),
             }
             for r in outgoing
@@ -164,7 +165,7 @@ async def pending_requests(db: Session = Depends(get_db)) -> dict[str, Any]:
             {
                 "request_id": r.id,
                 "user_id": r.user_id,
-                "username": users.get(r.user_id, {}).get("username", "(đã xoá)"),
+                "username": users.get(r.user_id, {}).get("username", _t("social.deleted_user")),
             }
             for r in blocked
         ],
@@ -176,26 +177,26 @@ async def send_friend_request(body: FriendRequestBody, db: Session = Depends(get
     me = _me(db)
     target_id, target_name = _resolve_target(db, body.target)
     if target_id == me:
-        raise HTTPException(status_code=400, detail="Bạn không thể kết bạn với chính mình.")
+        raise HTTPException(status_code=400, detail=_t("social.cannot_friend_self"))
 
     existing = _pair(db, me, target_id)
     if existing:
         if existing.status == "accepted":
-            raise HTTPException(status_code=409, detail="Hai bạn đã là bạn bè.")
+            raise HTTPException(status_code=409, detail=_t("social.already_friends"))
         if existing.status == "blocked":
-            raise HTTPException(status_code=403, detail="Không thể gửi lời mời tới người dùng này.")
+            raise HTTPException(status_code=403, detail=_t("social.cannot_request"))
         if existing.status == "pending" and existing.user_id == me:
-            raise HTTPException(status_code=409, detail="Bạn đã gửi lời mời, đang chờ phản hồi.")
+            raise HTTPException(status_code=409, detail=_t("social.request_already_sent"))
         if existing.status == "pending" and existing.friend_id == me:
             # They already invited us: sending back means yes.
             existing.status = "accepted"
             existing.updated_at = _now()
             db.commit()
-            return {"status": "accepted", "message": f"Bạn và {target_name} đã trở thành bạn bè."}
+            return {"status": "accepted", "message": _t("social.now_friends", name=target_name)}
 
     db.add(Friendship(user_id=me, friend_id=target_id, status="pending"))
     db.commit()
-    return {"status": "pending", "message": f"Đã gửi lời mời kết bạn tới {target_name}."}
+    return {"status": "pending", "message": _t("social.request_sent", name=target_name)}
 
 
 @router.post("/respond")
@@ -203,7 +204,7 @@ async def respond_to_request(body: FriendRespondBody, db: Session = Depends(get_
     me = _me(db)
     row = db.query(Friendship).filter_by(id=body.request_id, friend_id=me, status="pending").first()
     if not row:
-        raise HTTPException(status_code=404, detail="Lời mời không tồn tại hoặc đã được xử lý.")
+        raise HTTPException(status_code=404, detail=_t("social.request_missing"))
     if body.action == "accept":
         row.status = "accepted"
         row.updated_at = _now()
@@ -222,13 +223,13 @@ async def cancel_or_unblock(request_id: str, db: Session = Depends(get_db)) -> d
     me = _me(db)
     row = db.get(Friendship, request_id)
     if not row:
-        raise HTTPException(status_code=404, detail="Không tìm thấy lời mời.")
+        raise HTTPException(status_code=404, detail=_t("social.request_not_found"))
     if row.status == "pending" and row.user_id == me:
         db.delete(row)
     elif row.status == "blocked" and row.friend_id == me:
         db.delete(row)
     else:
-        raise HTTPException(status_code=403, detail="Bạn không thể thao tác trên lời mời này.")
+        raise HTTPException(status_code=403, detail=_t("social.request_forbidden"))
     db.commit()
     return {"status": "ok"}
 
@@ -238,7 +239,7 @@ async def remove_friend(friend_user_id: str, db: Session = Depends(get_db)) -> d
     me = _me(db)
     row = _pair(db, me, friend_user_id)
     if not row or row.status != "accepted":
-        raise HTTPException(status_code=404, detail="Hai bạn không phải là bạn bè.")
+        raise HTTPException(status_code=404, detail=_t("social.not_friends"))
     db.delete(row)
     # Partners shared between the two stop being shared.
     from pathmind.database.models import PartnerShare
@@ -250,4 +251,4 @@ async def remove_friend(friend_user_id: str, db: Session = Depends(get_db)) -> d
         )
     ).delete(synchronize_session=False)
     db.commit()
-    return {"status": "ok", "message": "Đã huỷ kết bạn."}
+    return {"status": "ok", "message": _t("social.unfriended")}

@@ -5,7 +5,7 @@ PathMind là bản đổi tên + tùy biến của DeepTutor (HKUDS, Apache-2.0 
 và các quy ước cần nhớ khi sửa code. Kiến trúc lõi (Tools / Capabilities / ChatOrchestrator / StreamBus)
 nằm trong `pathmind/`.
 
-> Cập nhật lần cuối: 2026-09-24 — Đổi tên DeepTutor → PathMind, dọn file thừa, Subscription, tín dụng theo giá model, dọn tính năng thừa, hoàn thiện Bạn bè / Chia sẻ Partner / Phòng học, gói cước mở khoá model.
+> Cập nhật lần cuối: 2026-09-28 — Skills cho mọi người dùng, Partners en/zh + chat phòng học, Cộng đồng (Skill Hub, Forum, báo cáo vi phạm, thông báo), bỏ Import from EduHub. Trước đó: VNPAY, dọn cài đặt hosted, web production, tín dụng lập chỉ mục.
 
 ---
 
@@ -28,12 +28,23 @@ nằm trong `pathmind/`.
 | Cổng thanh toán VNPAY (QR, ATM, Visa/Master/JCB) | ✅ Xong (sandbox) | IPN + trang quay về; đã bỏ VietQR, Stripe, Crypto |
 | Bạn bè (friends) | ✅ Xong | Tìm theo tên đăng nhập/email, mời ngược tự chấp nhận, chặn/bỏ chặn, huỷ lời mời |
 | Chia sẻ Partner cho bạn bè | ✅ Xong | Chỉ chủ Partner, chỉ cho bạn bè; người nhận được **dùng** (chat), gỡ được |
-| Phòng học chung (study rooms) | ✅ Xong (bản đơn giản) | Mã 6 ký tự, vào/rời/đóng/mời ra; thành viên được dùng Partner của phòng. Chưa có hội thoại chung realtime |
+| Phòng học chung (study rooms) | ✅ Xong (bản đơn giản) | Mã 6 ký tự, vào/rời/đóng/mời ra; **chat chung** (poll 2.5s) + hỏi Partner của phòng công khai (trừ credit người hỏi). Tạo phòng ngay ở tab "Friends & Study Rooms" |
 | Chống spam đăng ký | ✅ Xong | Tối đa `REGISTER_MAX_PER_IP_PER_HOUR` (mặc định 5) tài khoản/IP/giờ |
+| Cộng đồng: Skill Hub + Forum | ✅ Xong (bản đầu) | `/community` (forum kiểu Reddit) + `/community/skills` (kho skill, bấm Add là vào Skills của mình) |
 
 Chú thích: ✅ hoàn thiện · 🟡 chạy được nhưng chưa đầy đủ · ⚠️ chưa làm / chỉ demo.
 
 ---
+
+### Cộng đồng: Skill Hub + Forum (2026-09-28)
+- Menu **Community** (sidebar). Backend `api/routers/community.py` tại `/api/community`, logic đóng gói/cài skill ở `services/community.py`. Bảng mới: `community_skills`, `community_skill_installs`, `forum_posts`, `forum_comments`, `community_votes` (tự tạo khi khởi động).
+- **Skill Hub** (`/community/skills`, chi tiết `/community/skills/[slug]`): tìm kiếm, lọc theo nhóm (academics, languages, skills-interests, companions, educators, productivity, other), sắp xếp theo lượt thêm/thích/mới. **Add** ⇒ chép gói vào Skills của chính người dùng qua `SkillService.install_tree` (bỏ `always:`, chỉ nhận file text trong whitelist, ghi nguồn `hub = "community"` vào `.hub-lock.json`, gắn tag `community`); trùng tên ⇒ 409, giao diện hỏi "Replace". `install_count` đếm theo người.
+- **Chia sẻ skill** từ: skill của mình (`source=skill`, kèm file phụ), tài liệu Co-Writer (`source=cowriter`), dán markdown (`source=text`), hoặc upload `SKILL.md`/`.md`/`.zip` (`POST /skills/upload`, ≤5 MB, file nhị phân bị bỏ). Nút chia sẻ có ở Hub, ở từng skill trong Learning Space → Skills, và trên thanh công cụ Co-Writer ("Share as a community skill", lấy nội dung đang soạn). Tác giả sửa/thay gói (tăng `version`) hoặc gỡ; admin gỡ = ẩn (`is_hidden`). Người đã thêm vẫn giữ bản sao.
+- **Forum** (`/community`, bài `/community/posts/[id]`): chủ đề general, help, skills, study, feedback, announcements (chỉ admin đăng); vote ±1, bình luận lồng nhau, sắp xếp hot/new/top, tìm kiếm, gắn skill vào bài ("Discuss in the forum"). Tác giả sửa/xoá (xoá mềm, luồng trả lời vẫn đọc được); admin ghim, khoá, xoá. Markdown hiển thị với `allowHtml={false}`.
+- Giới hạn: 10 bài/giờ, 60 bình luận/giờ, 20 skill/ngày mỗi người (429). Thông báo lỗi `services.i18n` khoá `community.*` (en/zh). Test: `tests/services/test_community.py`.
+- **Báo cáo vi phạm**: nút "Report" trên bài, bình luận, skill của người khác (lý do: spam, harassment, inappropriate, misinformation, copyright, other + ghi chú). Mỗi người báo 1 lần/nội dung (báo lại = cập nhật lý do), tối đa 30 báo cáo/giờ, không báo nội dung của mình. Bảng `community_reports`. Admin xem ở tab **Moderation** (`/community/moderation`, `GET /reports?status=open|resolved`, gộp theo nội dung, nhiều báo cáo lên trước) ⇒ **Keep (dismiss)** hoặc **Remove** (`POST /reports/resolve`: xoá mềm bài/bình luận, ẩn skill, đóng mọi báo cáo của nội dung đó).
+- **Thông báo** (bảng `community_notifications`): có người bình luận bài của tôi (`post_comment`), trả lời bình luận của tôi (`comment_reply`), thêm skill của tôi (`skill_installed`, lần đầu mỗi người), admin gỡ nội dung của tôi (`content_removed`). Không tự thông báo cho chính mình. Chuông ở đầu trang Community (danh sách, đánh dấu đã đọc, bấm để mở bài/skill); số chưa đọc hiện cạnh mục Community ở sidebar (`lib/community-unread.ts` + `hooks/useCommunityUnread.ts`, hỏi `GET /notifications/unread-count` mỗi 60 giây khi tab đang mở).
+- Đã bỏ nút **Import from EduHub** trong Learning Space → Skills (thay bằng "Community skills"); `EduHubImportModal.tsx` chuyển sang `C:\PathMind_removed\pm55`. API `/api/skills/hub/*` vẫn còn (CLI dùng).
 
 ### Thanh toán chỉ qua VNPAY (2026-09-28) — thay VietQR, Stripe, Crypto
 - **Cổng duy nhất: VNPAY** (`services/vnpay.py`, API v2.1.0): trên trang VNPAY người dùng chọn **VNPAY-QR** (quét bằng app của hầu hết ngân hàng), **thẻ ATM nội địa** hoặc **Visa/Mastercard/JCB**. `Gateway = Literal["vnpay"]`; gửi `bank_transfer`/`stripe`/`crypto` ⇒ 422. Code VietQR/Stripe đã gỡ (chuyển sang `C:\PathMind_removed`); payment cũ vẫn hiển thị bình thường.
@@ -252,7 +263,9 @@ script dev (`scripts/check_*`, `update.py`, …); toàn bộ test (`tests/`, `we
 **Xã hội — `/api/social`** (`api/routers/partner_shares.py`, trước đây nằm chung `/api/partners` và dễ trùng route):
 `POST /partners/{id}/share`, `GET /partners/shared-with-me`, `GET /partners/{id}/shares`, `DELETE /shares/{id}`,
 `POST /rooms`, `GET /rooms`, `GET /rooms/{code}`, `POST /rooms/{code}/join|leave`, `DELETE /rooms/{code}`,
-`DELETE /rooms/{code}/members/{user_id}`.
+`DELETE /rooms/{code}/members/{user_id}`, `GET /rooms/{code}/messages?after=<id>`, `POST /rooms/{code}/messages {content, ask_partner}`.
+Chat phòng: bảng `room_messages` (`RoomMessage`, id tự tăng để poll). `ask_partner` → `send_group_message` (session `room-<id>`, actor = người hỏi, `allow_invoke_other=False`), khoá theo phòng (409 khi Partner đang trả lời), lỗi Partner → dòng `system`.
+Thông báo lỗi dùng `services.i18n` khoá `social.*` (en/zh theo ngôn ngữ UI).
 Quyền dùng Partner: `multi_user/partner_access.assigned_partner_ids` = grant của admin ∪ `social_partner_ids`
 (được chia sẻ + Partner của phòng đang tham gia). Chỉ cấp quyền **dùng**, không bao giờ cấp quyền quản lý.
 
@@ -268,7 +281,8 @@ Quyền dùng Partner: `multi_user/partner_access.assigned_partner_ids` = grant 
 | `app/(admin)/admin/payments/page.tsx` | Duyệt thanh toán |
 | `components/admin/AdminTabs.tsx` | Thanh tab dùng chung cho các trang admin |
 | `components/admin/ModelPriceTable.tsx` | Bảng giá API model (trong `/admin/plans`) |
-| `components/partners/FriendsTab.tsx` | Tab Bạn bè: kết bạn, lời mời, chặn, Partner được chia sẻ, phòng học |
+| `components/partners/FriendsTab.tsx` | Tab Friends & Study Rooms: tạo/vào phòng, phòng của tôi, kết bạn, lời mời, chặn, Partner được chia sẻ (i18n en/zh) |
+| `app/(workspace)/partners/rooms/[code]/page.tsx` | Phòng chat chung + hỏi Partner của phòng |
 | `components/partners/SharePartnerModal.tsx` | Chia sẻ Partner cho bạn bè / mở phòng học (từ trang cấu hình Partner) |
 | `lib/friends-api.ts` | Client `/api/friends` + `/api/social` |
 | `app/(utility)/profile/page.tsx` | Thẻ "Gói cước & Hạn mức" |

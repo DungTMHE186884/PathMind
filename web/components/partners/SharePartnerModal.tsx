@@ -1,7 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Check, Copy, Radio, Share2, X } from "lucide-react";
+import Link from "next/link";
+import { useTranslation } from "react-i18next";
+import { Check, Copy, MessageSquare, Radio, Share2, X } from "lucide-react";
 import {
   createStudyRoom,
   fetchFriendsList,
@@ -25,6 +27,7 @@ export default function SharePartnerModal({
   partnerName: string;
   onClose: () => void;
 }) {
+  const { t } = useTranslation();
   const [friends, setFriends] = useState<FriendItem[]>([]);
   const [shares, setShares] = useState<PartnerShareRecipient[]>([]);
   const [loading, setLoading] = useState(true);
@@ -32,7 +35,9 @@ export default function SharePartnerModal({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
-  const [roomName, setRoomName] = useState(`Phòng học: ${partnerName}`);
+  const [roomName, setRoomName] = useState(
+    t("Study room: {{name}}", { name: partnerName }),
+  );
   const [roomCode, setRoomCode] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
@@ -50,11 +55,11 @@ export default function SharePartnerModal({
           prev || f.find((x) => !sharedIds.has(x.user_id))?.user_id || "",
       );
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Không tải được dữ liệu");
+      setError(e instanceof Error ? e.message : t("Could not load data"));
     } finally {
       setLoading(false);
     }
-  }, [partnerId]);
+  }, [partnerId, t]);
 
   useEffect(() => {
     void load();
@@ -74,7 +79,7 @@ export default function SharePartnerModal({
       setNotice(ok);
       await load();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Thao tác thất bại");
+      setError(e instanceof Error ? e.message : t("Action failed"));
     } finally {
       setBusy(false);
     }
@@ -96,11 +101,11 @@ export default function SharePartnerModal({
       >
         <div className="mb-4 flex items-center justify-between">
           <h2 className="font-serif text-lg font-semibold text-[var(--foreground)]">
-            Chia sẻ {partnerName}
+            {t("Share {{name}}", { name: partnerName })}
           </h2>
           <button
             onClick={onClose}
-            aria-label="Đóng"
+            aria-label={t("Close")}
             className="text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
           >
             <X size={18} />
@@ -118,20 +123,20 @@ export default function SharePartnerModal({
         {/* Share with a friend */}
         <section className="mb-6">
           <h3 className="mb-1 flex items-center gap-2 text-sm font-semibold text-[var(--foreground)]">
-            <Share2 size={15} className="text-primary" /> Chia sẻ cho bạn bè
+            <Share2 size={15} className="text-primary" /> {t("Share with friends")}
           </h3>
           <p className="mb-3 text-xs text-[var(--muted-foreground)]">
-            Bạn bè được trò chuyện với Partner này (mỗi người một cuộc trò
-            chuyện riêng), không sửa được cấu hình.
+            {t(
+              "Friends can chat with this Partner (each in their own conversation) but can't change its settings.",
+            )}
           </p>
           {loading ? (
             <p className="text-sm text-[var(--muted-foreground)]">
-              Đang tải...
+              {t("Loading...")}
             </p>
           ) : friends.length === 0 ? (
             <p className="text-sm text-[var(--muted-foreground)]">
-              Bạn chưa có bạn bè. Kết bạn ở tab &quot;Bạn bè&quot; của trang
-              Partners.
+              {t("You have no friends yet. Add friends on the Partners page, Friends & Study Rooms tab.")}
             </p>
           ) : (
             <div className="flex gap-2">
@@ -141,7 +146,7 @@ export default function SharePartnerModal({
                 className="flex-1 rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm text-[var(--foreground)]"
               >
                 {available.length === 0 && (
-                  <option value="">Đã chia sẻ cho tất cả bạn bè</option>
+                  <option value="">{t("Already shared with all your friends")}</option>
                 )}
                 {available.map((f) => (
                   <option key={f.user_id} value={f.user_id}>
@@ -155,11 +160,11 @@ export default function SharePartnerModal({
                   void act(async () => {
                     await sharePartnerWithFriend(partnerId, selected);
                     setSelected("");
-                  }, "Đã chia sẻ.")
+                  }, t("Shared."))
                 }
                 className="rounded-lg bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:opacity-90 disabled:opacity-50"
               >
-                Chia sẻ
+                {t("Share")}
               </button>
             </div>
           )}
@@ -176,12 +181,12 @@ export default function SharePartnerModal({
                     onClick={() =>
                       void act(
                         () => revokePartnerShare(s.share_id),
-                        "Đã gỡ chia sẻ.",
+                        t("Share removed."),
                       )
                     }
                     className="text-xs text-[var(--muted-foreground)] hover:text-destructive"
                   >
-                    Gỡ
+                    {t("Remove")}
                   </button>
                 </div>
               ))}
@@ -192,13 +197,15 @@ export default function SharePartnerModal({
         {/* Study room */}
         <section>
           <h3 className="mb-1 flex items-center gap-2 text-sm font-semibold text-[var(--foreground)]">
-            <Radio size={15} className="text-primary" /> Mở phòng học chung
+            <Radio size={15} className="text-primary" /> {t("Open a study room")}
           </h3>
           <p className="mb-3 text-xs text-[var(--muted-foreground)]">
-            Ai có mã phòng đều vào được và dùng Partner này khi còn trong phòng.
-            Quản lý phòng ở tab &quot;Bạn bè&quot;.
+            {t(
+              "Anyone with the room code can join, chat together and ask this Partner while they are in the room.",
+            )}
           </p>
           {roomCode ? (
+            <div className="space-y-2">
             <div className="flex items-center justify-between rounded-xl border border-primary/30 bg-primary/10 px-4 py-3">
               <span className="font-mono text-xl font-semibold tracking-widest text-primary">
                 {roomCode}
@@ -211,8 +218,15 @@ export default function SharePartnerModal({
                 }}
                 className="inline-flex items-center gap-1 text-xs text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
               >
-                {copied ? <Check size={13} /> : <Copy size={13} />} Sao chép
+                {copied ? <Check size={13} /> : <Copy size={13} />} {t("Copy")}
               </button>
+            </div>
+            <Link
+              href={`/partners/rooms/${encodeURIComponent(roomCode)}`}
+              className="inline-flex w-full items-center justify-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:opacity-90"
+            >
+              <MessageSquare size={14} /> {t("Open room chat")}
+            </Link>
             </div>
           ) : (
             <div className="flex gap-2">
@@ -231,11 +245,11 @@ export default function SharePartnerModal({
                       partnerId,
                     );
                     setRoomCode(room.room_code);
-                  }, "Đã tạo phòng.")
+                  }, t("Room created."))
                 }
                 className="rounded-lg border border-[var(--border)] px-3 py-2 text-sm hover:bg-muted disabled:opacity-50"
               >
-                Tạo phòng
+                {t("Create room")}
               </button>
             </div>
           )}

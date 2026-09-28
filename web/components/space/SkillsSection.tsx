@@ -3,6 +3,7 @@
 import { resourceUsage } from "@/lib/workspaces-api";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
+import Link from "next/link";
 import { useTranslation } from "react-i18next";
 import {
   Check,
@@ -12,15 +13,16 @@ import {
   Lock,
   Pencil,
   Plus,
+  Share2,
   Sparkles,
-  Store,
   Tag as TagIcon,
   Trash2,
+  Users,
   Wand2,
   X,
 } from "lucide-react";
 import SpaceSectionHeader from "@/components/space/SpaceSectionHeader";
-import EduHubImportModal from "@/components/space/EduHubImportModal";
+import PublishSkillModal from "@/components/community/PublishSkillModal";
 import { isValidSkillName, slugifySkillName } from "@/lib/skill-slug";
 import {
   createSkill,
@@ -84,7 +86,7 @@ export default function SkillsSection() {
   const [editor, setEditor] = useState<SkillEditorState | null>(null);
   const [viewer, setViewer] = useState<SkillViewerState | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
-  const [importOpen, setImportOpen] = useState(false);
+  const [sharing, setSharing] = useState<string | null>(null);
 
   const [filterTag, setFilterTag] = useState<string | "all" | "untagged">(
     "all",
@@ -412,13 +414,13 @@ export default function SkillsSection() {
         }
         action={
           <div className="flex items-center gap-2">
-            <button
-              onClick={() => setImportOpen(true)}
+            <Link
+              href="/community/skills"
               className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] bg-[var(--card)] px-3.5 py-1.5 text-[12.5px] font-medium text-[var(--foreground)] shadow-sm transition-colors hover:bg-[var(--muted)]/50"
             >
-              <Store size={13} strokeWidth={1.9} />
-              {t("Import from EduHub")}
-            </button>
+              <Users size={13} strokeWidth={1.9} />
+              {t("Community skills")}
+            </Link>
             <button
               onClick={openCreate}
               className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--primary)] px-3.5 py-1.5 text-[12.5px] font-medium text-[var(--primary-foreground)] shadow-sm transition-opacity hover:opacity-90"
@@ -669,6 +671,16 @@ export default function SkillsSection() {
                     </span>
                   ) : (
                     <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSharing(skill.name);
+                        }}
+                        className="rounded-md p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--muted)] hover:text-[var(--foreground)]"
+                        title={t("Share to community")}
+                      >
+                        <Share2 size={13} />
+                      </button>
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
@@ -979,11 +991,11 @@ export default function SkillsSection() {
         </div>
       )}
 
-      {importOpen && (
-        <EduHubImportModal
-          onClose={() => setImportOpen(false)}
-          onInstalled={() => void load()}
-          installedNames={new Set(skills.map((s) => s.name))}
+      {sharing && (
+        <PublishSkillModal
+          initial={{ source: "skill", skillName: sharing }}
+          onClose={() => setSharing(null)}
+          onDone={() => setSharing(null)}
         />
       )}
     </div>
