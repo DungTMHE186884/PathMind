@@ -106,7 +106,7 @@ class Payment(Base):
     plan_id = Column(String(50), ForeignKey("subscription_plans.id"), nullable=False)
     amount = Column(Float, nullable=False)  # always stored in USD
     currency = Column(String(10), default="USD")
-    # "bank_transfer" | "stripe" | "crypto" | "payos" | "admin"
+    # "vnpay" | "admin" (older rows: "bank_transfer", "stripe", "crypto")
     payment_method = Column(String(50), default="bank_transfer")
     transaction_id = Column(String(255), nullable=True, unique=True)
     # "pending" | "completed" | "failed" | "canceled" | "expired" | "refunded"
@@ -118,6 +118,8 @@ class Payment(Base):
     updated_at = Column(DateTime, nullable=True, default=datetime.utcnow, onupdate=datetime.utcnow)
     confirmed_by = Column(String(100), nullable=True)
     note = Column(String(500), nullable=True)
+    # Gateway transaction id (e.g. ``vnpay:<vnp_TransactionNo>``), for reconciliation.
+    gateway_reference = Column(String(255), nullable=True)
 
     user = relationship("User", back_populates="payments")
     plan = relationship("SubscriptionPlan")

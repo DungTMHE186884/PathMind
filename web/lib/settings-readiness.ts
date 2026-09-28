@@ -192,8 +192,7 @@ const SECTION_ANCHORS: Record<string, string> = {
   // the parsing section is the category key.
   "parser.": "knowledge",
   "tool.": "tools",
-  "video.": "video-learning",
-  "runtime.": "network",
+  // video.* / runtime.* rows have no settings page on the hosted site.
 };
 
 /** Where a row is actually fixed. Knowledge bases live outside settings. */

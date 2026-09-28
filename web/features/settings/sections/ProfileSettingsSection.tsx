@@ -22,6 +22,7 @@ import {
   deleteOwnAccount,
   fetchAuthStatus,
   logout,
+  refreshAuthStatus,
   resendEmailCode,
   updateProfileDetails,
   verifyEmailCode,
@@ -183,6 +184,7 @@ export default function ProfileSettingsSection() {
     try {
       const saved = await setAvatarMarker(marker);
       setProfile((prev) => (prev ? { ...prev, avatar: saved } : prev));
+      void refreshAuthStatus(); // sidebar account card follows immediately
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -201,6 +203,7 @@ export default function ProfileSettingsSection() {
         const blob = await cropToSquareBlob(file);
         const marker = await uploadAvatarImage(blob);
         setProfile((prev) => (prev ? { ...prev, avatar: marker } : prev));
+        void refreshAuthStatus();
       } catch (err) {
         setError(err instanceof Error ? err.message : String(err));
       } finally {
@@ -218,6 +221,7 @@ export default function ProfileSettingsSection() {
     try {
       await removeAvatarImage();
       setProfile((prev) => (prev ? { ...prev, avatar: "" } : prev));
+      void refreshAuthStatus();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {

@@ -16,7 +16,7 @@ nằm trong `pathmind/`.
 | Đăng ký / đăng nhập nhiều người dùng | ✅ Xong | `/register` mở cho mọi người, người đầu tiên thành admin |
 | Gói cước + hạn mức **tín dụng** theo giá model | ✅ Xong | Trừ theo từng lần gọi LLM (`services/llm/metrics.py`), chặn trước lượt trong `ChatOrchestrator` |
 | Bảng giá API model + báo cáo chi phí/lãi gộp | ✅ Xong | `/admin/plans` (bảng giá), `/admin/payments` (chi phí theo model) |
-| Thanh toán (checkout → xác nhận → kích hoạt) | ✅ Xong | VietQR chuyển khoản + admin xác nhận / webhook HMAC / demo |
+| Thanh toán (checkout → xác nhận → kích hoạt) | ✅ Xong | VNPAY tự xác nhận + admin xác nhận tay / webhook HMAC / demo |
 | Vòng đời subscription (hết hạn, gia hạn, huỷ gia hạn) | ✅ Xong | Tự hết hạn khi đọc; gia hạn cộng dồn |
 | Trang Bảng giá `/pricing` (user) | ✅ Xong | Xem cả khi chưa đăng nhập |
 | Admin: gói cước `/admin/plans` | ✅ Xong | CRUD gói, sửa giá/hạn mức/model/tính năng |
@@ -25,7 +25,7 @@ nằm trong `pathmind/`.
 | Hồ sơ `/profile` hiển thị gói & usage | ✅ Xong | |
 | Hạn mức **dung lượng lưu trữ** | ✅ Xong | Kiểm tra cả lô khi upload KB, trả lại dung lượng khi xoá tệp/KB |
 | Giới hạn tệp đính kèm chat theo gói | ✅ Xong | `get_chat_attachment_limits` lấy min(system.json, gói) |
-| Cổng Stripe / Crypto thật | ⚠️ Chỉ demo | Chỉ hiện khi `BILLING_DEMO_MODE=true` |
+| Cổng thanh toán VNPAY (QR, ATM, Visa/Master/JCB) | ✅ Xong (sandbox) | IPN + trang quay về; đã bỏ VietQR, Stripe, Crypto |
 | Bạn bè (friends) | ✅ Xong | Tìm theo tên đăng nhập/email, mời ngược tự chấp nhận, chặn/bỏ chặn, huỷ lời mời |
 | Chia sẻ Partner cho bạn bè | ✅ Xong | Chỉ chủ Partner, chỉ cho bạn bè; người nhận được **dùng** (chat), gỡ được |
 | Phòng học chung (study rooms) | ✅ Xong (bản đơn giản) | Mã 6 ký tự, vào/rời/đóng/mời ra; thành viên được dùng Partner của phòng. Chưa có hội thoại chung realtime |
@@ -34,6 +34,31 @@ nằm trong `pathmind/`.
 Chú thích: ✅ hoàn thiện · 🟡 chạy được nhưng chưa đầy đủ · ⚠️ chưa làm / chỉ demo.
 
 ---
+
+### Thanh toán chỉ qua VNPAY (2026-09-28) — thay VietQR, Stripe, Crypto
+- **Cổng duy nhất: VNPAY** (`services/vnpay.py`, API v2.1.0): trên trang VNPAY người dùng chọn **VNPAY-QR** (quét bằng app của hầu hết ngân hàng), **thẻ ATM nội địa** hoặc **Visa/Mastercard/JCB**. `Gateway = Literal["vnpay"]`; gửi `bank_transfer`/`stripe`/`crypto` ⇒ 422. Code VietQR/Stripe đã gỡ (chuyển sang `C:\PathMind_removed`); payment cũ vẫn hiển thị bình thường.
+- Checkout ⇒ payment pending (giá USD × `BILLING_USD_VND_RATE` = `amount_vnd`) + URL thanh toán đã ký (`vnp_TxnRef` = mã DT…, `vnp_Amount` = VND×100, giờ GMT+7, hết hạn 30 phút, `vnp_SecureHash` = HMAC-SHA512 trên chuỗi tham số sắp xếp theo tên, giá trị `quote_plus`).
+- Xác nhận (đều kiểm tra chữ ký + đúng số tiền, gọi lại nhiều lần không cộng thêm):
+  - **IPN** `GET /api/billing/vnpay/ipn` (VNPAY gọi server; phải khai báo với VNPAY, cần HTTPS công khai). Trả `{"RspCode","Message"}`: `00` thành công, `02` đã xác nhận, `01` không có đơn, `04` sai số tiền, `97` sai chữ ký, `99` lỗi.
+  - **Trang quay về** `/pricing?vnp_…` ⇒ frontend gửi các tham số `vnp_*` tới `POST /api/billing/payments/vnpay-return` (chỉ chủ đơn) — chạy được cả khi VNPAY chưa gọi được IPN (thử trên máy).
+  - Thành công khi `vnp_ResponseCode == "00"` và `vnp_TransactionStatus == "00"`; khác ⇒ payment `failed` (VD `24` = khách huỷ). `payments.gateway_reference = vnpay:<vnp_TransactionNo>`.
+- Cấu hình trong `local.env.bat` (git-ignore; mẫu `local.env.example.bat`): `VNPAY_TMN_CODE`, `VNPAY_HASH_SECRET`, `VNPAY_ENV=sandbox|production`, `PATHMIND_PUBLIC_URL`. Sandbox đăng ký tại https://sandbox.vnpayment.vn/devreg/. Admin → Payments có thẻ VNPAY (sandbox/production, mã TMN, IPN URL cần khai báo, Return URL); API `GET /api/admin/vnpay/status`. Bản thật: `BILLING_DEMO_MODE=false`, `VNPAY_ENV=production`. Test: `tests/services/test_vnpay.py`.
+
+### Dọn cài đặt cho bản hosted (2026-09-27)
+- (Tích hợp VietQR làm cùng đợt này đã được thay bằng VNPAY ngày 2026-09-28.)
+- **Đã bỏ khỏi Cài đặt** (không dùng khi chạy như một trang web): Network (cổng/CORS — đặt bằng biến môi trường), Workspace (thư mục gốc/di chuyển dữ liệu trên máy chủ), Data migration, Video Learning (Invidious tự host). Link cũ tới các trang này tự về General; file giao diện chuyển sang `C:\PathMind_removed`. Breadcrumb workspace trong chat không còn lộ đường dẫn thư mục máy chủ.
+- **Chặn quyền ghi cấu hình chung**: `PUT /api/capabilities/settings`, `PUT /api/memory/settings` giờ chỉ admin (trước đây user thường gọi thẳng API là sửa được cho cả hệ thống); trang Memory chỉ admin thấy. Các endpoint workspace đụng tới file hệ thống (`/data/*`, `migrate-root`, `{id}/migrate`, `system-snapshot`, `PUT ""`, `validate`) chỉ admin; danh sách/tạo/đổi tên workspace của chính user vẫn mở. 
+
+### Web chạy bản production + trạng thái đăng nhập tức thì (2026-09-26)
+- **`start.bat` giờ chạy frontend bản production** (`scripts/start_web_prod.py`): build Next.js một lần vào `web/.next-pathmind` rồi chạy `standalone/server.js` (nghe `0.0.0.0:3782`, dùng được từ điện thoại cùng mạng). Dùng lại logic của launcher (`_ensure_source_production_build`): **tự build lại khi có file trong `web/` thay đổi** — lần khởi động đầu sau mỗi lần cập nhật mất vài phút (xem `logs\frontend.log`), các lần sau vào ngay. `start.bat dev` = chạy `next dev` như cũ (hot reload, chậm) khi cần sửa giao diện. `next dev` chính là nguyên nhân khựng: mỗi trang compile lần đầu 10+ giây, React bản dev, không minify.
+- Nếu `next dev` báo 404 hàng loạt sau khi khởi động lại: chuyển `web\.next` sang `C:\PathMind_removed\_cache` rồi chạy lại (bộ đệm Turbopack hỏng).
+- **Trạng thái đăng nhập dùng chung** (`lib/auth.ts`: `peekAuthStatus`, `subscribeAuthStatus`, `refreshAuthStatus`, `clearAuthSnapshot`): trạng thái gần nhất được lưu `localStorage["pathmind-auth-snapshot"]` (chỉ id, tên, role, avatar — không email/policy) và đồng bộ giữa các tab bằng `BroadcastChannel("pathmind-auth")`. `useAuthStatus`/`useAuthSnapshot` (`useSyncExternalStore`) hiện ngay tài khoản đúng rồi kiểm tra lại nền (cache 15 giây). `login()` đợi đọc xong tài khoản mới trước khi chuyển trang; `logout()`/xoá tài khoản ⇒ `clearAuthSnapshot()`. `UserMenu`, `SettingsAccessProvider`, `AdminOnlyGuard` dùng store này nên không còn nhấp nháy "chưa đăng nhập"/thiếu mục admin. Quyền thật vẫn do backend kiểm tra.
+
+### Embedding + lập chỉ mục: model do admin chọn, tính tín dụng (2026-09-25)
+- **Embedding model**: user thường không chọn được. `_resolve_embedding_form` chỉ nhận model embedding mặc định (Cài đặt → Models → embedding đang active) hoặc model KB **đang** gắn (reindex); gửi model khác ⇒ 403. `GET …/rag-pipelines/model-options` với user thường chỉ trả model mặc định kèm `locked: true` → giao diện (`EmbeddingModelSelector`) hiện dạng chỉ đọc "Chosen by the administrator…". KB cũ gắn model khác khi reindex sẽ chuyển sang model mặc định. **Chưa cấu hình embedding active ⇒ user thường không tạo được KB LlamaIndex/LightRAG/GraphRAG.**
+- **LLM lập chỉ mục (LightRAG)**: ô chọn vốn đã lọc theo gói (`/api/settings/llm-options`). Không chọn ⇒ user thường dùng **model mặc định của gói** (`_freeze_default_indexing_llm` → `allowed_llm_options().active`, VD Free = deepseek-flash) thay vì model LightRAG của admin; frontend cũng rơi về model mặc định của user khi model LightRAG của admin không nằm trong gói.
+- **Tính tín dụng** (`services/indexing_credits.py`): mỗi lô embedding (`EmbeddingClient.embed`/`embed_contents`) bị trừ vào user đang chạy theo bảng giá `model_prices` (token do provider báo, không có thì ước tính ký tự/3.5). Provider local (`is_local`: Ollama, vLLM…) miễn phí. Model embedding không có trong bảng giá dùng dòng `*embedding` ($0.15/1M), **không** dùng dòng `*` của LLM ($2/1M). Đã seed giá `text-embedding-3-small/large`, `ada-002`, `gemini-embedding-001`. LLM trích xuất thực thể của LightRAG vốn đã bị trừ qua `CallMeasurement` (chạy dưới `user_context(owner)`).
+- **Dừng khi hết tín dụng**: `RAGService.initialize/add_documents` chạy trong `indexing_scope()`; trong đó mỗi lô embedding và mỗi lệnh gọi LLM của LightRAG gọi `ensure_indexing_credits()` (kiểm tra hạn mức ngày/tháng, cache 5 giây) ⇒ hết tín dụng thì job báo lỗi `IndexingCreditsExhausted` (KB giữ bản index cũ). Trước khi bắt đầu: tạo KB có file, upload, reindex, sync GitHub/web ⇒ `_indexing_credit_precheck()` trả 403 nếu đã hết. Truy vấn lúc chat (embedding câu hỏi) vẫn bị tính nhưng không bị chặn ở đây (lượt chat đã được `check_turn_allowed` chặn). Admin không bao giờ bị giới hạn. Test: `tests/services/test_indexing_credits.py`.
 
 ### Knowledge Center: phân quyền admin / người dùng (2026-09-25)
 - Người dùng thường **vẫn dùng Knowledge Center**: tạo KB, upload (tính vào hạn mức dung lượng của gói), thư mục/xoá file, KB mặc định, reindex, nguồn GitHub/web/EduHub, chọn KB trong chat.
@@ -162,7 +187,7 @@ script dev (`scripts/check_*`, `update.py`, …); toàn bộ test (`tests/`, `we
 
 ### Luồng thanh toán
 1. User `POST /api/billing/checkout` → tạo payment **pending** (không kích hoạt gì).
-2. User chuyển khoản VietQR với nội dung = mã giao dịch (pending hết hạn sau 24h).
+2. User được chuyển sang trang VNPAY (QR / thẻ ATM / thẻ quốc tế) với mã giao dịch = `vnp_TxnRef` (pending hết hạn sau 24h).
 3. Payment chuyển `completed` bằng **một** trong ba cách:
    - `POST /api/billing/webhook` có header `X-Billing-Signature` = HMAC-SHA256(secret, raw body);
    - admin bấm xác nhận ở `/admin/payments`;
@@ -237,7 +262,7 @@ Quyền dùng Partner: `multi_user/partner_access.assigned_partner_ids` = grant 
 
 | Route / file | Vai trò |
 | --- | --- |
-| `app/(settings)/pricing/page.tsx` | Bảng giá, usage, checkout VietQR, huỷ/bật gia hạn, lịch sử thanh toán |
+| `app/(settings)/pricing/page.tsx` | Bảng giá, usage, checkout VNPAY (chuyển trang + xác nhận khi quay về), huỷ/bật gia hạn, lịch sử thanh toán |
 | `app/(admin)/admin/plans/page.tsx` | Quản lý gói cước |
 | `app/(admin)/admin/users/page.tsx` | Quản lý user + cấp gói |
 | `app/(admin)/admin/payments/page.tsx` | Duyệt thanh toán |
@@ -265,7 +290,7 @@ phải là **biến môi trường của tiến trình backend** (VD Windows:
 | `BILLING_WEBHOOK_SECRET` | Secret HMAC cho webhook; để trống = tắt webhook |
 | `BILLING_USD_VND_RATE` | Tỉ giá hiển thị/QR (mặc định 25400) |
 | `BILLING_CREDIT_USD_PER_MTOK` | Giá gốc của 1 tín dụng, USD/1M token (mặc định 0.25) |
-| `BILLING_BANK_BIN`, `BILLING_BANK_NAME`, `BILLING_BANK_ACCOUNT_NO`, `BILLING_BANK_ACCOUNT_NAME` | Tài khoản nhận tiền để sinh mã VietQR |
+| `VNPAY_TMN_CODE`, `VNPAY_HASH_SECRET`, `VNPAY_ENV`, `PATHMIND_PUBLIC_URL` | Cổng VNPAY (đặt trong `local.env.bat`) |
 | `DATABASE_URL` | Tuỳ chọn; mặc định SQLite trong `data/user/` |
 | `REGISTER_MAX_PER_IP_PER_HOUR` | Số tài khoản tự đăng ký tối đa mỗi IP mỗi giờ (mặc định 5, 0 = tắt) |
 
@@ -285,9 +310,9 @@ Không có cổng nào được cấu hình ⇒ modal thanh toán báo "chưa c�
    Doanh thu tháng ghi nhận theo ngày thanh toán (gói năm chưa phân bổ 12 tháng).
 5. **i18n**: chuỗi tiếng Việt đang hard-code trong các trang mới — `npm run i18n:check` có thể báo lỗi.
 6. **Contracts**: chạy `npm run contracts:generate` để cập nhật `web/contracts` sau khi bỏ endpoint cũ.
-7. Tích hợp cổng thật (PayOS/Casso/SePay → gọi `/api/billing/webhook` có ký HMAC; Stripe).
+7. Chuyển VNPAY sang production (hợp đồng merchant VNPAY, `VNPAY_ENV=production`, khai báo IPN URL HTTPS).
 
-Chạy dev: `start.bat` / `stop.bat` ở thư mục gốc (log ở `logs\backend.log`, `logs\frontend.log`).
+Chạy: `start.bat` (production, mượt) / `start.bat dev` (dev server) / `stop.bat` ở thư mục gốc (log ở `logs\backend.log`, `logs\frontend.log`).
 
 ---
 

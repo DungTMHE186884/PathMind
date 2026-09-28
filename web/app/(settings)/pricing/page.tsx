@@ -7,7 +7,6 @@ import {
   ArrowLeft,
   Check,
   CheckCircle2,
-  Coins,
   Copy,
   CreditCard,
   QrCode,
@@ -36,6 +35,7 @@ import {
   listMyPayments,
   simulatePayment,
   switchToFreePlan,
+  confirmVnpayReturn,
   type BillingConfig,
   type ModelRate,
   type BillingInterval,
@@ -47,9 +47,7 @@ import {
 } from "@/lib/billing-api";
 
 const GATEWAY_ICON: Record<PaymentGateway, typeof QrCode> = {
-  bank_transfer: QrCode,
-  stripe: CreditCard,
-  crypto: Coins,
+  vnpay: CreditCard,
 };
 
 const isPaid = (p: SubscriptionPlanItem) =>
@@ -75,7 +73,7 @@ export default function PricingPage() {
   const [selectedPlan, setSelectedPlan] = useState<SubscriptionPlanItem | null>(
     null,
   );
-  const [gateway, setGateway] = useState<PaymentGateway>("bank_transfer");
+  const [gateway, setGateway] = useState<PaymentGateway>("vnpay");
   const [checkout, setCheckout] = useState<CheckoutSession | null>(null);
   const [checkoutBusy, setCheckoutBusy] = useState(false);
   const [checkoutError, setCheckoutError] = useState("");
@@ -119,6 +117,37 @@ export default function PricingPage() {
     void loadData();
   }, [loadData]);
 
+  // Back from VNPAY: /pricing?vnp_TxnRef=DT…&vnp_ResponseCode=…&vnp_SecureHash=…
+  useEffect(() => {
+    const params = Object.fromEntries(new URLSearchParams(window.location.search));
+    if (!params.vnp_TxnRef || !params.vnp_SecureHash) return;
+    window.history.replaceState(null, "", window.location.pathname);
+    const vnpParams: Record<string, string> = {};
+    for (const [key, value] of Object.entries(params))
+      if (key.startsWith("vnp_")) vnpParams[key] = value;
+    setNotice(t("Confirming your payment…"));
+    void confirmVnpayReturn(vnpParams)
+      .then((payment) => {
+        if (payment.status === "completed") {
+          setNotice(t("Payment received — your plan is active."));
+          void loadData();
+        } else if (payment.vnpay_response_code === "24") {
+          setNotice(t("Payment canceled. You were not charged."));
+        } else {
+          setNotice("");
+          setError(
+            t("The payment was not completed (VNPAY code {{code}}).", {
+              code: payment.vnpay_response_code || "?",
+            }),
+          );
+        }
+      })
+      .catch((err: unknown) => {
+        setNotice("");
+        setError(err instanceof Error ? err.message : t("Could not check the payment"));
+      });
+  }, [loadData, t]);
+
   const stopPolling = useCallback(() => {
     if (pollRef.current) clearInterval(pollRef.current);
     pollRef.current = null;
@@ -148,7 +177,7 @@ export default function PricingPage() {
     setCheckout(null);
     setCheckoutError("");
     setPaid(false);
-    setGateway(enabledGateways[0]?.id ?? "bank_transfer");
+    setGateway(enabledGateways[0]?.id ?? "vnpay");
   }
 
   function closeCheckout() {
@@ -168,6 +197,12 @@ export default function PricingPage() {
         billingCycle,
         gateway,
       );
+      if (session.checkout_url) {
+        // VNPAY: pay on VNPAY's page (QR / ATM / international card), then
+        // come back to /pricing with the signed result.
+        window.location.assign(session.checkout_url);
+        return;
+      }
       setCheckout(session);
       stopPolling();
       pollRef.current = setInterval(async () => {

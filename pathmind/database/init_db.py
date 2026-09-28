@@ -125,6 +125,13 @@ DEFAULT_MODEL_PRICES: list[dict] = [
     {"id": "gemini-3.1-pro", "display_name": "Gemini 3.1 Pro", "provider": "gemini", "input_per_m": 2.0, "cached_input_per_m": None, "output_per_m": 12.0, "aliases": ["gemini-pro-latest"]},
     {"id": "claude-haiku-4-5", "display_name": "Claude Haiku 4.5", "provider": "anthropic", "input_per_m": 1.0, "cached_input_per_m": 0.1, "output_per_m": 5.0, "aliases": []},
     {"id": "claude-sonnet-4-6", "display_name": "Claude Sonnet 4.6", "provider": "anthropic", "input_per_m": 3.0, "cached_input_per_m": 0.3, "output_per_m": 15.0, "aliases": []},
+    # Embedding models (input only). Billed when knowledge bases are indexed
+    # and when a query is embedded for retrieval.
+    {"id": "*embedding", "display_name": "Embedding models not in the price list", "provider": "", "input_per_m": 0.15, "cached_input_per_m": 0.15, "output_per_m": 0.0, "aliases": []},
+    {"id": "text-embedding-3-small", "display_name": "OpenAI text-embedding-3-small", "provider": "openai", "input_per_m": 0.02, "cached_input_per_m": 0.02, "output_per_m": 0.0, "aliases": []},
+    {"id": "text-embedding-3-large", "display_name": "OpenAI text-embedding-3-large", "provider": "openai", "input_per_m": 0.13, "cached_input_per_m": 0.13, "output_per_m": 0.0, "aliases": []},
+    {"id": "text-embedding-ada-002", "display_name": "OpenAI text-embedding-ada-002", "provider": "openai", "input_per_m": 0.10, "cached_input_per_m": 0.10, "output_per_m": 0.0, "aliases": []},
+    {"id": "gemini-embedding-001", "display_name": "Gemini Embedding", "provider": "gemini", "input_per_m": 0.15, "cached_input_per_m": 0.15, "output_per_m": 0.0, "aliases": ["gemini-embedding-exp"]},
 ]
 
 

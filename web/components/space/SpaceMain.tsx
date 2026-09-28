@@ -66,5 +66,5 @@ export default function SpaceMain({
 
 function ResourceLibraryNote() {
   const { t } = useTranslation();
-  return <>{t("Account resource library. Manage resources here and assign them to workspaces in Settings.")} <Link className="underline" href="/settings#workspace">{t("Workspaces")}</Link></>;
+  return <>{t("Account resource library. Manage your learning resources here.")}</>;
 }

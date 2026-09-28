@@ -13,6 +13,7 @@ import {
   inputClass,
 } from "@/components/settings/shared";
 import { useSettings } from "@/features/settings/store/SettingsStore";
+import { useSettingsAccess } from "@/features/settings/navigation/SettingsAccessProvider";
 import { apiFetch, apiUrl } from "@/lib/api";
 import { EXTENSION_ENDPOINTS } from "@/lib/settings-extensions";
 
@@ -25,6 +26,8 @@ type StarterSettingsPayload = {
 
 export default function StarterSettingsPage() {
   const { t } = useTranslation();
+  // The Task-models page is admin-only; don't link students to it.
+  const access = useSettingsAccess();
   const { registerExtension, pendingExtensionPayload, draftRevision } =
     useSettings();
   const [payload, setPayload] = useState<StarterSettingsPayload | null>(null);
@@ -177,7 +180,7 @@ export default function StarterSettingsPage() {
         </SettingSection>
       )}
 
-      {!loading && payload && (
+      {!loading && payload && !access.hideAdminOnly && (
         <p className="mt-5 text-[11.5px] leading-relaxed text-[var(--muted-foreground)]">
           {t("These lines are written by the active model unless you pin one.")}{" "}
           <Link

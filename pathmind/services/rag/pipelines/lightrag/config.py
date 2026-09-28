@@ -269,6 +269,11 @@ def build_llm_model_func(
     ):
         async def request():
             async def complete():
+                # Entity extraction bills the KB owner (CallMeasurement); stop
+                # an indexing job once the owner's plan credits are used up.
+                from pathmind.services.indexing_credits import ensure_indexing_credits
+
+                ensure_indexing_credits()
                 return await base(
                     prompt or "",
                     system_prompt=system_prompt,
@@ -325,6 +330,9 @@ def build_vision_model_func(
 
         async def request():
             async def complete():
+                from pathmind.services.indexing_credits import ensure_indexing_credits
+
+                ensure_indexing_credits()
                 return await base(
                     prompt or "",
                     system_prompt=system_prompt,

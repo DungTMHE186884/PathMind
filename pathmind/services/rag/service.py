@@ -69,7 +69,12 @@ class RAGService:
         provider = self._resolve_provider(kb_name)
         self.logger.info(f"Initializing KB '{kb_name}' (provider={provider})")
         pipeline = self._get_pipeline(provider)
-        return await pipeline.initialize(kb_name=kb_name, file_paths=file_paths, **kwargs)
+        from pathmind.services.indexing_credits import indexing_scope
+
+        # Embedding / extraction calls inside are billed to the KB owner and
+        # stop once the owner's plan credits run out.
+        with indexing_scope():
+            return await pipeline.initialize(kb_name=kb_name, file_paths=file_paths, **kwargs)
 
     @with_kb_embedding
     async def add_documents(self, kb_name: str, file_paths: List[str], **kwargs) -> bool:
@@ -78,9 +83,12 @@ class RAGService:
             f"Adding {len(file_paths)} document(s) to KB '{kb_name}' (provider={provider})"
         )
         pipeline = self._get_pipeline(provider)
-        if not hasattr(pipeline, "add_documents"):
-            return await pipeline.initialize(kb_name=kb_name, file_paths=file_paths, **kwargs)
-        return await pipeline.add_documents(kb_name=kb_name, file_paths=file_paths, **kwargs)
+        from pathmind.services.indexing_credits import indexing_scope
+
+        with indexing_scope():
+            if not hasattr(pipeline, "add_documents"):
+                return await pipeline.initialize(kb_name=kb_name, file_paths=file_paths, **kwargs)
+            return await pipeline.add_documents(kb_name=kb_name, file_paths=file_paths, **kwargs)
 
     @with_kb_embedding
     async def search(

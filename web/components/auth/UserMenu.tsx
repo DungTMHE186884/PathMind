@@ -1,12 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Settings } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { fetchAuthStatus, type AuthStatus } from "@/lib/auth";
 import { UserAvatar } from "@/components/UserAvatar";
+import { useAuthSnapshot } from "@/hooks/useAuthStatus";
 
 /**
  * The only item in the sidebar footer: the account card. It opens Settings
@@ -17,16 +16,12 @@ import { UserAvatar } from "@/components/UserAvatar";
 export function UserMenu({ collapsed = false }: { collapsed?: boolean }) {
   const { t } = useTranslation();
   const pathname = usePathname();
-  const [status, setStatus] = useState<AuthStatus | null>(null);
-  const [resolved, setResolved] = useState(false);
-
-  useEffect(() => {
-    fetchAuthStatus()
-      .then((next) => {
-        if (next?.enabled && next?.authenticated) setStatus(next);
-      })
-      .finally(() => setResolved(true));
-  }, []);
+  // Shared, persisted auth store: the account card renders immediately on
+  // every page and follows login / logout (also from other tabs).
+  const snapshot = useAuthSnapshot();
+  const resolved = snapshot !== undefined;
+  const status =
+    snapshot?.enabled && snapshot?.authenticated ? snapshot : null;
 
   const active = pathname.startsWith("/settings");
   const expandedClass = `flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-[13.5px] transition-colors ${

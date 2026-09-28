@@ -17,7 +17,7 @@ export const SETTINGS_PAGE_GROUPS: { label: Lang; keys: string[] }[] = [
   },
   {
     label: { en: 'Learning & conversation', zh: '学习与对话' },
-    keys: ['starters', 'video-learning', 'memory'],
+    keys: ['starters', 'memory'],
   },
   {
     label: { en: 'Models & services', zh: '模型与服务' },
@@ -29,7 +29,7 @@ export const SETTINGS_PAGE_GROUPS: { label: Lang; keys: string[] }[] = [
   },
   {
     label: { en: 'System', zh: '系统' },
-    keys: ['network', 'workspace', 'data-migration', 'status'],
+    keys: ['status'],
   },
   { label: { en: 'Archived', zh: '已归档' }, keys: ['archive'] },
 ]
@@ -81,15 +81,6 @@ const extraPages: SettingsLeaf[] = [
     href: '/settings/billing',
     tile: '',
     authOnly: true,
-  },
-  {
-    key: 'data-migration',
-    label: { en: 'Data migration', zh: '数据迁移' },
-    blurb: { en: 'Discover, migrate and export learning data', zh: '查找、迁移和导出学习数据' },
-    icon: Archive,
-    href: '/settings/data-migration',
-    tile: '',
-    adminOnly: true,
   },
 
   {

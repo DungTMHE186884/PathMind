@@ -6,6 +6,7 @@ import { Trans, useTranslation } from "react-i18next";
 import {
   AlertCircle,
   CheckCircle2,
+  CreditCard,
   RefreshCw,
   RotateCcw,
   X,
@@ -17,10 +18,12 @@ import { fetchAuthStatus } from "@/lib/auth";
 import {
   confirmPayment,
   getAdminStats,
+  getVnpayStatus,
   listAdminPayments,
   refundPayment,
   rejectPayment,
   type AdminStats,
+  type VnpayStatus,
 } from "@/lib/admin-api";
 import {
   formatUsd,
@@ -75,17 +78,20 @@ export default function AdminPaymentsPage() {
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [ready, setReady] = useState(false);
+  const [vnpay, setVnpay] = useState<VnpayStatus | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError("");
     try {
-      const [rows, s] = await Promise.all([
+      const [rows, s, v] = await Promise.all([
         listAdminPayments(filter),
         getAdminStats().catch(() => null),
+        getVnpayStatus().catch(() => null),
       ]);
       setPayments(rows);
       setStats(s);
+      setVnpay(v);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : t("Failed to load payments"));
     } finally {
@@ -160,6 +166,44 @@ export default function AdminPaymentsPage() {
             {t("Reload")}
           </button>
         </div>
+
+        {vnpay && (
+          <div className="mb-6 rounded-xl border border-[var(--border)] bg-[var(--card)] p-4 text-xs">
+            <div className="mb-2 flex flex-wrap items-center gap-2 text-sm font-semibold">
+              <CreditCard size={16} /> VNPAY
+              <span
+                className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                  !vnpay.configured
+                    ? "bg-destructive/10 text-destructive"
+                    : vnpay.environment === "sandbox"
+                      ? "bg-warning-surface text-warning"
+                      : "bg-success-surface text-success"
+                }`}
+              >
+                {!vnpay.configured
+                  ? t("not configured")
+                  : vnpay.environment === "sandbox"
+                    ? t("Sandbox")
+                    : t("Production")}
+              </span>
+              {vnpay.tmn_code && (
+                <span className="font-mono text-[11px] text-[var(--muted-foreground)]">
+                  {vnpay.tmn_code}
+                </span>
+              )}
+            </div>
+            <dl className="grid gap-1 text-[var(--muted-foreground)]">
+              <div>
+                {t("IPN URL to register with VNPAY")}:{" "}
+                <code className="text-[var(--foreground)]">{vnpay.ipn_url}</code>
+              </div>
+              <div>
+                {t("Return URL")}:{" "}
+                <code className="text-[var(--foreground)]">{vnpay.return_url}</code>
+              </div>
+            </dl>
+          </div>
+        )}
 
         {stats && (
           <div className="mb-6 grid grid-cols-2 gap-4 md:grid-cols-3">

@@ -11,6 +11,8 @@ import { clearStoredTheme, DEFAULT_THEME, setTheme } from "@/lib/theme";
 export interface AuthStatus {
   enabled: boolean;
   authenticated: boolean;
+  /** Client-only: the status endpoint could not be reached (never persisted). */
+  unavailable?: boolean;
   user_id?: string;
   username?: string;
   role?: string;
@@ -38,7 +40,7 @@ export interface AuthStatus {
   } | null;
 }
 
-const AUTH_STATUS_CACHE_MS = 5_000;
+const AUTH_STATUS_CACHE_MS = 15_000;
 let authStatusRequest: Promise<AuthStatus | null> | null = null;
 let cachedAuthStatus: { value: AuthStatus | null; expiresAt: number } | null =
   null;
@@ -46,6 +48,142 @@ let cachedAuthStatus: { value: AuthStatus | null; expiresAt: number } | null =
 export function invalidateAuthStatusCache(): void {
   authStatusRequest = null;
   cachedAuthStatus = null;
+}
+
+// ---------------------------------------------------------------------------
+// Shared auth store
+//
+// Every component used to start from "unknown / signed out" and wait for its
+// own /api/auth/status round trip, so the sidebar, settings and admin-only
+// surfaces flashed the wrong state after each navigation, login or logout.
+// The last known status is kept in one store (persisted per browser, synced
+// across tabs) so the UI renders the right account immediately and is then
+// revalidated in the background. The server still enforces every permission;
+// this snapshot only drives what the UI shows first.
+// ---------------------------------------------------------------------------
+
+const AUTH_SNAPSHOT_KEY = "pathmind-auth-snapshot";
+const AUTH_CHANNEL = "pathmind-auth";
+type AuthListener = () => void;
+const authListeners = new Set<AuthListener>();
+/** undefined = not known yet in this browser. */
+let authCurrent: AuthStatus | undefined;
+let authSnapshotLoaded = false;
+let authChannel: BroadcastChannel | null = null;
+
+function publicSnapshot(status: AuthStatus): AuthStatus {
+  // Only what the shell needs to render; no learning policy or email.
+  return {
+    enabled: status.enabled,
+    authenticated: status.authenticated,
+    user_id: status.user_id,
+    username: status.username,
+    role: status.role,
+    is_admin: status.is_admin,
+    avatar: status.avatar,
+    preset: status.preset,
+  };
+}
+
+function readStoredSnapshot(): AuthStatus | undefined {
+  try {
+    const raw = window.localStorage.getItem(AUTH_SNAPSHOT_KEY);
+    if (!raw) return undefined;
+    const parsed = JSON.parse(raw) as AuthStatus;
+    return parsed && typeof parsed.enabled === "boolean" ? parsed : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function writeStoredSnapshot(status: AuthStatus | undefined): void {
+  try {
+    if (status) {
+      window.localStorage.setItem(
+        AUTH_SNAPSHOT_KEY,
+        JSON.stringify(publicSnapshot(status)),
+      );
+    } else {
+      window.localStorage.removeItem(AUTH_SNAPSHOT_KEY);
+    }
+  } catch {
+    // Storage disabled: the in-memory store still works for this page.
+  }
+}
+
+function sameStatus(a: AuthStatus | undefined, b: AuthStatus | undefined): boolean {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  return JSON.stringify(publicSnapshot(a)) === JSON.stringify(publicSnapshot(b));
+}
+
+function setAuthCurrent(status: AuthStatus | undefined, broadcast: boolean): void {
+  if (sameStatus(authCurrent, status)) {
+    // Keep the richer object (e.g. learning policy) without re-rendering.
+    if (status) authCurrent = status;
+    return;
+  }
+  authCurrent = status;
+  if (!status?.unavailable) writeStoredSnapshot(status);
+  for (const listener of Array.from(authListeners)) listener();
+  if (broadcast) {
+    ensureAuthChannel();
+    try {
+      authChannel?.postMessage("changed");
+    } catch {
+      // ignore
+    }
+  }
+}
+
+function ensureAuthChannel(): void {
+  if (authChannel || typeof window === "undefined") return;
+  try {
+    authChannel = new BroadcastChannel(AUTH_CHANNEL);
+    authChannel.onmessage = () => {
+      // Another tab signed in or out: show its answer now, then re-check.
+      invalidateAuthStatusCache();
+      setAuthCurrent(readStoredSnapshot(), false);
+      void fetchAuthStatus();
+    };
+  } catch {
+    authChannel = null;
+  }
+}
+
+/**
+ * Last known auth status, synchronously (no network). ``undefined`` until
+ * this browser has resolved the account at least once.
+ */
+export function peekAuthStatus(): AuthStatus | undefined {
+  if (typeof window === "undefined") return undefined;
+  if (!authSnapshotLoaded) {
+    authSnapshotLoaded = true;
+    if (authCurrent === undefined) authCurrent = readStoredSnapshot();
+  }
+  return authCurrent;
+}
+
+/** Subscribe to auth changes (login, logout, other tabs, revalidation). */
+export function subscribeAuthStatus(listener: AuthListener): () => void {
+  ensureAuthChannel();
+  authListeners.add(listener);
+  return () => {
+    authListeners.delete(listener);
+  };
+}
+
+/** Re-read the account now (after changing the avatar, name, …). */
+export function refreshAuthStatus(): Promise<AuthStatus | null> {
+  invalidateAuthStatusCache();
+  return fetchAuthStatus();
+}
+
+/** Forget the signed-in account (sign-out, account deletion). */
+export function clearAuthSnapshot(): void {
+  invalidateAuthStatusCache();
+  const enabled = peekAuthStatus()?.enabled ?? true;
+  setAuthCurrent(enabled ? { enabled: true, authenticated: false } : undefined, true);
 }
 
 /**
@@ -71,6 +209,10 @@ export function fetchAuthStatus(): Promise<AuthStatus | null> {
       }
     })()
       .then((status) => {
+        // Keep the last good answer while the backend is briefly unreachable.
+        if (status) setAuthCurrent(status, true);
+        else if (peekAuthStatus() === undefined)
+          setAuthCurrent({ enabled: false, authenticated: false, unavailable: true }, false);
         cachedAuthStatus = {
           value: status,
           // Retry unavailable backends quickly; stable answers can be shared
@@ -132,6 +274,9 @@ export async function login(
 
     if (res.ok) {
       invalidateAuthStatusCache();
+      // Resolve the new account before the caller navigates, so the next page
+      // renders signed in instead of flashing the previous (signed-out) state.
+      await fetchAuthStatus();
       return { ok: true };
     }
 
@@ -253,7 +398,7 @@ export async function deleteOwnAccount(
     });
     const data = await res.json().catch(() => ({}));
     if (res.ok) {
-      invalidateAuthStatusCache();
+      clearAuthSnapshot();
       setTheme(DEFAULT_THEME);
       clearStoredTheme();
       return { ok: true };
@@ -308,7 +453,7 @@ export async function logout(): Promise<void> {
   } catch {
     // Ignore — we'll redirect regardless
   } finally {
-    invalidateAuthStatusCache();
+    clearAuthSnapshot();
     // The theme belongs to the account: the sign-in page goes back to the
     // default instead of showing the previous user's choice.
     setTheme(DEFAULT_THEME);

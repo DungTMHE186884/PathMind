@@ -618,6 +618,19 @@ async def refund_payment(
 
 
 # ---------------------------------------------------------------------------
+# VNPAY (payment gateway)
+# ---------------------------------------------------------------------------
+
+
+@router.get("/vnpay/status")
+async def vnpay_status(admin: Any = Depends(require_admin)) -> dict[str, Any]:
+    """Secret-free VNPAY configuration: environment, merchant code, IPN / return URLs."""
+    from pathmind.services import vnpay
+
+    return vnpay.status_summary()
+
+
+# ---------------------------------------------------------------------------
 # Model price list (drives credits and cost reporting)
 # ---------------------------------------------------------------------------
 
@@ -767,7 +780,9 @@ async def get_available_models(
     presets = [
         r.id
         for r in db.query(ModelPrice).order_by(ModelPrice.input_per_m).all()
-        if r.id != model_pricing.FALLBACK_PRICE_ID and r.is_active is not False
+        if not r.id.startswith("*")
+        and "embedding" not in r.id  # embedding prices are not chat models
+        and r.is_active is not False
     ]
     for p in db.query(SubscriptionPlan).all():
         for m in p.allowed_models or []:

@@ -54,7 +54,18 @@ export function selectionFromLightRagDefault(
           (item) => item.profile_id === profileId && item.model_id === modelId,
         )
       : options.find((item) => item.is_active_default);
-  return option ? selectionFromLLMOption(option) : null;
+  // The administrator's LightRAG model may not be in a user's plan: fall back
+  // to the user's own default (their plan's model) instead of no selection.
+  const fallback =
+    !option && hasDedicated
+      ? options.find(
+          (item) =>
+            item.profile_id === activeDefault?.profile_id &&
+            item.model_id === activeDefault?.model_id,
+        ) || options.find((item) => item.is_active_default)
+      : undefined;
+  const chosen = option || fallback;
+  return chosen ? selectionFromLLMOption(chosen) : null;
 }
 
 interface IndexingModelSelectorProps {

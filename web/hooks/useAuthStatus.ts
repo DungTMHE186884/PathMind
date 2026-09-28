@@ -1,7 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { fetchAuthStatus } from "@/lib/auth";
+import { useEffect, useSyncExternalStore } from "react";
+import {
+  fetchAuthStatus,
+  peekAuthStatus,
+  subscribeAuthStatus,
+  type AuthStatus,
+} from "@/lib/auth";
 
 export interface AuthStatusState {
   /** Whether auth is enabled on the backend. */
@@ -40,33 +45,64 @@ const INITIAL: AuthStatusState = {
  * constant, so it works identically on Docker (read-only rootfs), the PyPI
  * `pathmind start` launcher, and source dev.
  */
-function loadAuthStatus(): Promise<AuthStatusState> {
-  return fetchAuthStatus().then((status) => ({
-    enabled: Boolean(status?.enabled),
-    authenticated: Boolean(status?.authenticated),
-    isAdmin: status?.role === "admin",
-    username: status?.username ?? null,
-    userId:
-      typeof status?.user_id === "string" && status.user_id.trim()
-        ? status.user_id
-        : null,
-    statusAvailable: status !== null,
-    loading: false,
-  }));
+const stateCache = new WeakMap<AuthStatus, AuthStatusState>();
+
+function toState(status: AuthStatus | undefined): AuthStatusState {
+  if (!status) return INITIAL;
+  let state = stateCache.get(status);
+  if (!state) {
+    state = {
+      enabled: Boolean(status.enabled),
+      authenticated: Boolean(status.authenticated),
+      isAdmin: status.role === "admin",
+      username: status.username ?? null,
+      userId:
+        typeof status.user_id === "string" && status.user_id.trim()
+          ? status.user_id
+          : null,
+      statusAvailable: !status.unavailable,
+      loading: false,
+    };
+    stateCache.set(status, state);
+  }
+  return state;
 }
 
+const getClientState = () => toState(peekAuthStatus());
+const getServerState = () => INITIAL;
+
+/**
+ * Renders the last known account immediately (shared store, persisted per
+ * browser) and revalidates it in the background, so navigation, login and
+ * logout no longer flash a signed-out UI while /api/auth/status is in flight.
+ */
 export function useAuthStatus(): AuthStatusState {
-  const [state, setState] = useState<AuthStatusState>(INITIAL);
+  const state = useSyncExternalStore(
+    subscribeAuthStatus,
+    getClientState,
+    getServerState,
+  );
 
   useEffect(() => {
-    let alive = true;
-    loadAuthStatus().then((next) => {
-      if (alive) setState(next);
-    });
-    return () => {
-      alive = false;
-    };
+    void fetchAuthStatus();
   }, []);
 
   return state;
+}
+
+const getServerStatus = () => undefined;
+
+/** The raw shared auth status (avatar, role…); ``undefined`` until known. */
+export function useAuthSnapshot(): AuthStatus | undefined {
+  const status = useSyncExternalStore(
+    subscribeAuthStatus,
+    peekAuthStatus,
+    getServerStatus,
+  );
+
+  useEffect(() => {
+    void fetchAuthStatus();
+  }, []);
+
+  return status;
 }

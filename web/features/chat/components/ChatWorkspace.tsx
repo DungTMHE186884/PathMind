@@ -63,7 +63,6 @@ import {
   useGeogebraTabOpener,
 } from "@/context/GeogebraTabContext";
 import { BookmarkPlus, ChevronRight, Download, FolderOpen, PanelRight } from "lucide-react";
-import Link from "next/link";
 import {
   useChatStateAdapter,
   type MessageAttachment,
@@ -2384,11 +2383,9 @@ export default function ChatWorkspace({
                     conversation says which workspace's files it can see without
                     the learner opening a menu to find out. */}
                 {activeWorkspace ? (
-                  <Link
-                    href="/settings/workspace"
-                    title={activeWorkspace.path}
-                    className="inline-flex shrink-0 items-center gap-1 rounded-lg px-1.5 py-1 text-[12.5px] text-[var(--muted-foreground)] transition hover:bg-[var(--muted)]/55 hover:text-[var(--foreground)]"
-                  >
+                  // Plain label: no server folder path in the tooltip and no
+                  // link to the (removed) workspace settings page.
+                  <span className="inline-flex shrink-0 items-center gap-1 rounded-lg px-1.5 py-1 text-[12.5px] text-[var(--muted-foreground)]">
                     <FolderOpen size={13} strokeWidth={1.7} />
                     <span className="max-w-[140px] truncate">
                       {activeWorkspace.display_name}
@@ -2398,7 +2395,7 @@ export default function ChatWorkspace({
                       strokeWidth={2}
                       className="-mr-1 opacity-60"
                     />
-                  </Link>
+                  </span>
                 ) : null}
                 {sessionTitleEditing ? (
                   <input

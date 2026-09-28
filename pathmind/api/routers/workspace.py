@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
-from pathmind.api.routers.auth import require_auth
+from pathmind.api.routers.auth import require_admin, require_auth
 from pathmind.multi_user.partner_access import visible_partners
 from pathmind.multi_user.paths import user_context
 from pathmind.services.auth import TokenPayload
@@ -22,6 +22,11 @@ from pathmind.services.workspace import (
 from pathmind.services.workspace.resources import WorkspaceResources
 
 settings_router = APIRouter()
+# Server-filesystem operations (data migration/export, moving workspace roots,
+# system snapshots, changing the root folder) are for administrators only on a
+# hosted deployment. Listing / creating / renaming a user's own workspaces and
+# its resources stays available to every signed-in user.
+_ADMIN_ONLY = [Depends(require_admin)]
 files_router = APIRouter()
 
 
@@ -68,14 +73,14 @@ def _assert_migration_access():
         )
 
 
-@settings_router.get("/data/discover")
+@settings_router.get("/data/discover", dependencies=_ADMIN_ONLY)
 async def discover_workspace_data(source_workspace_id: str = "") -> dict:
     from pathmind.services.workspace.data_migration import discover
 
     return await _data_operation(discover, source_workspace_id)
 
 
-@settings_router.post("/data/preview")
+@settings_router.post("/data/preview", dependencies=_ADMIN_ONLY)
 async def preview_workspace_data(payload: DataMigrationPayload) -> dict:
     from pathmind.services.workspace.data_migration import preview
 
@@ -84,7 +89,7 @@ async def preview_workspace_data(payload: DataMigrationPayload) -> dict:
     )
 
 
-@settings_router.post("/data/migrate")
+@settings_router.post("/data/migrate", dependencies=_ADMIN_ONLY)
 async def migrate_workspace_data(payload: DataMigrationPayload) -> dict:
     from pathmind.services.workspace.data_migration import migrate_data
 
@@ -93,7 +98,7 @@ async def migrate_workspace_data(payload: DataMigrationPayload) -> dict:
     )
 
 
-@settings_router.post("/data/export")
+@settings_router.post("/data/export", dependencies=_ADMIN_ONLY)
 async def export_workspace_data(payload: DataMigrationPayload) -> dict:
     from pathmind.services.workspace.data_migration import export_data
 
@@ -105,7 +110,7 @@ async def export_workspace_data(payload: DataMigrationPayload) -> dict:
     )
 
 
-@settings_router.get("/data/operations")
+@settings_router.get("/data/operations", dependencies=_ADMIN_ONLY)
 async def workspace_data_operations() -> dict:
     _assert_migration_access()
     from pathmind.services.workspace.data_migration import operations
@@ -113,14 +118,14 @@ async def workspace_data_operations() -> dict:
     return {"operations": await asyncio.to_thread(operations)}
 
 
-@settings_router.post("/data/operations/{operation_id}/recover")
+@settings_router.post("/data/operations/{operation_id}/recover", dependencies=_ADMIN_ONLY)
 async def recover_workspace_migration(operation_id: str) -> dict:
     from pathmind.services.workspace.data_migration import recover_operation
 
     return await _data_operation(recover_operation, operation_id)
 
 
-@settings_router.get("/data/exports/{operation_id}")
+@settings_router.get("/data/exports/{operation_id}", dependencies=_ADMIN_ONLY)
 async def download_workspace_export(operation_id: str) -> FileResponse:
     _assert_migration_access()
     from pathmind.services.workspace.data_migration import export_path
@@ -179,20 +184,20 @@ async def _migrate_workspaces(path: str, workspace_id: str | None = None) -> dic
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
-@settings_router.post("/registrations/migrate-root")
+@settings_router.post("/registrations/migrate-root", dependencies=_ADMIN_ONLY)
 async def migrate_workspace_root(payload: WorkspaceMigrationPayload) -> dict:
     return await _migrate_workspaces(payload.path)
 
 
-@settings_router.post("/registrations/{workspace_id}/migrate")
+@settings_router.post("/registrations/{workspace_id}/migrate", dependencies=_ADMIN_ONLY)
 async def migrate_registered_workspace(
     workspace_id: str, payload: WorkspaceMigrationPayload
 ) -> dict:
     return await _migrate_workspaces(payload.path, workspace_id)
 
 
-@settings_router.get("/registrations/system-snapshot")
-@settings_router.post("/registrations/system-snapshot")
+@settings_router.get("/registrations/system-snapshot", dependencies=_ADMIN_ONLY)
+@settings_router.post("/registrations/system-snapshot", dependencies=_ADMIN_ONLY)
 async def system_workspace_snapshot() -> dict:
     try:
         return get_content_workspace_service().refresh_system_snapshot()
@@ -254,12 +259,12 @@ async def get_workspace_settings() -> dict:
     return get_content_workspace_service().describe_current()
 
 
-@settings_router.post("/validate")
+@settings_router.post("/validate", dependencies=_ADMIN_ONLY)
 async def validate_workspace(payload: WorkspacePathPayload) -> dict:
     return get_content_workspace_service().validate(payload.path)
 
 
-@settings_router.put("")
+@settings_router.put("", dependencies=_ADMIN_ONLY)
 async def update_workspace(payload: WorkspacePathPayload) -> dict:
     service = get_content_workspace_service()
     try:

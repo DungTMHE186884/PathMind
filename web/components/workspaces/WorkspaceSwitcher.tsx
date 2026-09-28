@@ -2,8 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
-import Link from 'next/link'
-import { FolderOpen, Settings2 } from 'lucide-react'
+import { FolderOpen } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { useChatWorkspaces } from '@/hooks/useChatWorkspaces'
 import { selectWorkspace } from '@/lib/workspace-scope'
@@ -46,13 +45,6 @@ export function WorkspaceSwitcher() {
               </option>
             ))}
         </select>
-        <Link
-          href="/settings/workspace"
-          aria-label={t('Manage workspaces')}
-          className="text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
-        >
-          <Settings2 size={13} />
-        </Link>
       </div>
       {error ? (
         <p role="alert" className="mt-1 text-xs text-[var(--destructive)]">

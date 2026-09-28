@@ -686,16 +686,42 @@ def _freeze_indexing_llm_form(raw: str):
 
 
 def _freeze_default_indexing_llm():
-    """Freeze the released LightRAG model default for one create or rebuild."""
+    """Freeze the released LightRAG model default for one create or rebuild.
+
+    Regular users index with their plan's default model (e.g. the cheapest
+    model for Free) — the same default the chat model picker shows them —
+    so extraction is billed at the rate they expect.
+    """
     from pathmind.services.rag.pipelines.lightrag.indexing_policy import (
+        POLICY_PINNED,
         IndexingPolicyError,
         freeze_default_snapshot,
+        freeze_snapshot,
     )
 
     try:
+        if not get_current_user().is_admin:
+            from pathmind.multi_user.model_access import allowed_llm_options
+
+            active = allowed_llm_options().get("active")
+            if active:
+                return freeze_snapshot(active, policy=POLICY_PINNED)
         return freeze_default_snapshot()
     except (ValueError, PermissionError, IndexingPolicyError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+def _indexing_credit_precheck() -> None:
+    """Refuse to start indexing when the account has no plan credits left.
+
+    Indexing bills the embedding model (and LightRAG's extraction LLM) to the
+    KB owner; a job that runs out of credits midway stops with an error.
+    """
+    from pathmind.services.indexing_credits import check_indexing_credits
+
+    allowed, reason = check_indexing_credits()
+    if not allowed:
+        raise HTTPException(status_code=403, detail=reason)
 
 
 def _assert_provider_ready(provider: str) -> None:
@@ -804,6 +830,24 @@ def _resolve_embedding_form(value, provider: str, entry: dict | None = None):
         ):
             raise ValueError("Select a configured embedding model.")
         selection = {k: selection[k] for k in ("profile_id", "model_id")}
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if value and not get_current_user().is_admin:
+        # The embedding model is infrastructure picked by the administrator:
+        # regular users always get the default one (or keep the model an
+        # existing knowledge base is already bound to).
+        allowed = [default_selection(), (entry or {}).get("embedding_selection")]
+        if not any(
+            isinstance(item, dict)
+            and item.get("profile_id") == selection["profile_id"]
+            and item.get("model_id") == selection["model_id"]
+            for item in allowed
+        ):
+            raise HTTPException(
+                status_code=403,
+                detail="Only an administrator can choose the embedding model.",
+            )
+    try:
         return selection, get_embedding_config(selection)
     except (ValueError, TypeError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -1700,6 +1744,49 @@ def _model_options_payload(kinds: list[str]) -> dict:
                 "model_id": svc.get("active_model_id"),
             },
             "options": options,
+        }
+    if not get_current_user().is_admin:
+        out = _restrict_model_options_for_user(out)
+    return out
+
+
+def _restrict_model_options_for_user(out: dict) -> dict:
+    """Regular users only see what they may use.
+
+    * ``embedding``: just the deployment default, marked ``locked`` (chosen by
+      the administrator, billed to the user's plan credits).
+    * ``llm``: the models their plan unlocks, with the plan default active.
+    """
+    if "embedding" in out:
+        active = out["embedding"]["active"]
+        out["embedding"] = {
+            "active": active,
+            "options": [
+                option
+                for option in out["embedding"]["options"]
+                if option["profile_id"] == active.get("profile_id")
+                and option["model_id"] == active.get("model_id")
+            ],
+            "locked": True,
+        }
+    if "llm" in out:
+        from pathmind.multi_user.model_access import allowed_llm_options
+
+        allowed = allowed_llm_options()
+        out["llm"] = {
+            "active": allowed.get("active")
+            or {"profile_id": None, "model_id": None},
+            "options": [
+                {
+                    "profile_id": option["profile_id"],
+                    "profile_name": option.get("profile_name") or "",
+                    "model_id": option["model_id"],
+                    "label": option.get("label") or option.get("model") or option["model_id"],
+                    "model": option.get("model") or "",
+                    "detail": "",
+                }
+                for option in allowed.get("options", [])
+            ],
         }
     return out
 
@@ -3108,6 +3195,7 @@ async def upload_files(
 
         kb_entry = _load_kb_entry_or_404(manager, kb_name)
         _assert_kb_writable_or_409(kb_name, kb_entry)
+        _indexing_credit_precheck()
         kb_path = manager.get_knowledge_base_path(kb_name)
         raw_dir = kb_path / "raw"
         raw_dir.mkdir(parents=True, exist_ok=True)
@@ -3243,6 +3331,8 @@ async def create_knowledge_base(
             raise HTTPException(status_code=400, detail=f"Knowledge base '{name}' already exists")
 
         rag_provider = _validate_registered_provider(rag_provider)
+        if files:
+            _indexing_credit_precheck()
         embedding_selection, embedding_config = _resolve_embedding_form(
             embedding_model, rag_provider
         )
@@ -3670,6 +3760,7 @@ async def reindex_knowledge_base(
         manager, kb_name, kb_base_dir = _writable_kb(kb_name)
         kb_entry = _load_kb_entry_or_404(manager, kb_name)
         _assert_not_connected_kb(kb_name, kb_entry)
+        _indexing_credit_precheck()
         force_reindex = str(kb_entry.get("status") or "").lower() == "error"
         kb_provider = _validate_registered_provider(
             kb_entry.get("rag_provider") or DEFAULT_PROVIDER
@@ -4498,6 +4589,7 @@ async def sync_github_sources(kb_name: str):
         from pathmind.services.github_source.sync import sync_source
 
         _source_storage_precheck()
+        _indexing_credit_precheck()
         raw_dir = Path(kb_base_dir) / resolved_name / "raw"
         results = []
         for src in sources:
@@ -4563,6 +4655,7 @@ async def sync_web_sources(kb_name: str):
             return {"message": "No enabled web sources", "results": []}
 
         _source_storage_precheck()
+        _indexing_credit_precheck()
         raw_dir = Path(kb_base_dir) / resolved_name / "raw"
         results = []
         for source in enabled:

@@ -36,9 +36,11 @@ import logging
 import re
 from typing import Literal
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
+
+from pathmind.api.routers.auth import require_admin
 
 from pathmind.services.memory import (
     L3_SLOTS,
@@ -619,7 +621,8 @@ async def get_memory_settings_endpoint():
     return memory_settings_dict()
 
 
-@router.put("/settings")
+# Writes the deployment-wide main.yaml ``memory:`` subtree: administrators only.
+@router.put("/settings", dependencies=[Depends(require_admin)])
 async def put_memory_settings(payload: dict):
     """Merge the payload into the ``memory:`` subtree and persist."""
     from pathmind.services.memory.settings import (

@@ -19,6 +19,27 @@ from .config import EmbeddingConfig, get_embedding_config
 from .validation import validate_embedding_batch
 
 
+def _charge(config: EmbeddingConfig, texts: List[Any], usage: Any) -> None:
+    """Bill one embedding request to the signed-in user's plan credits."""
+    from pathmind.services.indexing_credits import charge_embedding
+
+    spec = EMBEDDING_PROVIDERS.get(config.binding)
+    charge_embedding(
+        model=config.model,
+        binding=config.binding,
+        texts=texts,
+        usage=usage,
+        is_local=bool(spec and spec.is_local),
+    )
+
+
+def _ensure_credits() -> None:
+    """Stop a KB indexing job once its owner has no credits left."""
+    from pathmind.services.indexing_credits import ensure_indexing_credits
+
+    ensure_indexing_credits()
+
+
 def _resolve_adapter_class(binding: str) -> type[BaseEmbeddingAdapter]:
     provider = (binding or "").strip().lower()
     spec = EMBEDDING_PROVIDERS.get(provider)
@@ -139,6 +160,7 @@ class EmbeddingClient:
         total_batches = (len(texts) + batch_size - 1) // batch_size
         for i, start in enumerate(range(0, len(texts), batch_size)):
             batch = texts[start : start + batch_size]
+            _ensure_credits()
             request = EmbeddingRequest(
                 texts=batch,
                 model=self.config.model,
@@ -174,6 +196,7 @@ class EmbeddingClient:
                     f"{traceback.format_exc()}"
                 )
                 raise
+            _charge(self.config, batch, getattr(response, "usage", None))
             validated = validate_embedding_batch(
                 response.embeddings,
                 expected_count=len(batch),
@@ -254,6 +277,7 @@ class EmbeddingClient:
 
         for i, start in enumerate(range(0, len(contents), batch_size)):
             batch = contents[start : start + batch_size]
+            _ensure_credits()
             request = EmbeddingRequest(
                 texts=[],
                 model=self.config.model,
@@ -262,6 +286,11 @@ class EmbeddingClient:
                 enable_fusion=False,
             )
             response = await self.adapter.embed(request)
+            _charge(
+                self.config,
+                [item.get("text", "") if isinstance(item, dict) else "" for item in batch],
+                getattr(response, "usage", None),
+            )
             validated = validate_embedding_batch(
                 response.embeddings,
                 expected_count=len(batch),
@@ -293,9 +322,13 @@ class EmbeddingClient:
             return asyncio.run(self.embed(texts))
 
         import concurrent.futures
+        import contextvars
 
+        # Carry the user / indexing context into the helper thread so the
+        # request is billed to the right account.
+        context = contextvars.copy_context()
         with concurrent.futures.ThreadPoolExecutor() as executor:
-            future = executor.submit(asyncio.run, self.embed(texts))
+            future = executor.submit(context.run, asyncio.run, self.embed(texts))
             return future.result()
 
 

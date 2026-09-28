@@ -16,6 +16,7 @@ export function useEmbeddingModels(
     preferred || null,
   );
   const [loading, setLoading] = useState(enabled);
+  const [locked, setLocked] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const profileId = preferred?.profile_id;
   const modelId = preferred?.model_id;
@@ -33,6 +34,7 @@ export function useEmbeddingModels(
         if (cancelled || !data) return;
         const choices = data.embedding?.options || [];
         setOptions(choices);
+        setLocked(Boolean(data.embedding?.locked));
         const target =
           profileId && modelId
             ? { profile_id: profileId, model_id: modelId }
@@ -42,7 +44,10 @@ export function useEmbeddingModels(
             option.profile_id === target?.profile_id &&
             option.model_id === target?.model_id,
         );
-        const selected = match || (!profileId ? choices[0] : null);
+        // Regular users only get the administrator's default: a KB bound to
+        // another model is re-indexed with the default.
+        const selected =
+          match || (!profileId || data.embedding?.locked ? choices[0] : null);
         setSelection(
           selected
             ? { profile_id: selected.profile_id, model_id: selected.model_id }
@@ -60,5 +65,5 @@ export function useEmbeddingModels(
       cancelled = true;
     };
   }, [enabled, profileId, modelId]);
-  return { options, selection, setSelection, loading, error };
+  return { options, selection, setSelection, loading, error, locked };
 }

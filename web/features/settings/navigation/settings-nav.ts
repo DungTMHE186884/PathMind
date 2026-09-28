@@ -9,14 +9,12 @@ import {
   Clapperboard,
   Database,
   FileScan,
-  FolderOpen,
   Image as ImageIcon,
   KeyRound,
   Library,
   ListChecks,
   MessagesSquare,
   Mic,
-  Network,
   Palette,
   Search,
   SlidersHorizontal,
@@ -250,18 +248,6 @@ const MODEL_CHILDREN: SettingsLeaf[] = [
 
 const CHAT_CHILDREN: SettingsLeaf[] = [
   {
-    key: "video-learning",
-    href: "/settings#video-learning",
-    label: { zh: "视频学习", en: "Video Learning" },
-    blurb: {
-      zh: "原生 YouTube 与本地 Invidious 播放供应商。",
-      en: "Native YouTube and local Invidious playback providers.",
-    },
-    icon: Clapperboard,
-    tile: "bg-red-500/10 text-red-600 dark:text-red-400",
-    adminOnly: true,
-  },
-  {
     key: "tools",
     href: "/settings#tools",
     label: { zh: "工具", en: "Tools" },
@@ -306,28 +292,6 @@ export const SETTINGS_CATEGORIES: SettingsCategory[] = [
     href: "/settings#appearance",
   },
   {
-    key: "network",
-    adminOnly: true,
-    label: { zh: "网络", en: "Network" },
-    blurb: {
-      zh: "端口、浏览器 API 地址与 CORS",
-      en: "Ports, browser API base, and CORS",
-    },
-    icon: Network,
-    href: "/settings#network",
-  },
-  {
-    key: "workspace",
-    adminOnly: true,
-    label: { zh: "工作区", en: "Workspace" },
-    blurb: {
-      zh: "系统、通用与自建工作区，根目录与存储迁移",
-      en: "System, general and custom workspaces, root folder and storage migration",
-    },
-    icon: FolderOpen,
-    href: "/settings#workspace",
-  },
-  {
     key: "models",
     adminOnly: true,
     label: { zh: "模型", en: "Models" },
@@ -360,6 +324,8 @@ export const SETTINGS_CATEGORIES: SettingsCategory[] = [
   },
   {
     key: "memory",
+    // Deployment-wide knobs (main.yaml); the backend only accepts admin writes.
+    adminOnly: true,
     label: { zh: "记忆", en: "Memory" },
     blurb: {
       zh: "分块、预算、去重与引用策略",
@@ -385,6 +351,12 @@ export const SETTINGS_ALIASES: Record<string, string> = {
   "document-parsing": "knowledge",
   image: "multimodal",
   video: "multimodal",
+  // Removed for the hosted site (server ports, server folders, desktop data
+  // migration, self-hosted Invidious): old links land on General.
+  network: "general",
+  workspace: "general",
+  "data-migration": "general",
+  "video-learning": "general",
 };
 
 export function resolveSettingsKey(key: string): string {
@@ -404,8 +376,6 @@ export function settingsAnchorHref(key: string): string {
 // looked up via the currently scrolled-to section (see `storagePathFor`).
 const STORAGE_PATHS: Record<string, string> = {
   "/settings#appearance": "data/user/settings/interface.json",
-  "/settings#network": "data/user/settings/system.json",
-  "/settings#workspace": "data/user/.runtime/workspaces.sqlite3",
   "/settings#llm": "data/user/settings/model_catalog.json",
   "/settings#embedding": "data/user/settings/model_catalog.json",
   "/settings#search": "data/user/settings/model_catalog.json",
@@ -413,18 +383,14 @@ const STORAGE_PATHS: Record<string, string> = {
   "/settings#stt": "data/user/settings/model_catalog.json",
   "/settings#image": "data/user/settings/model_catalog.json",
   "/settings#video": "data/user/settings/model_catalog.json",
-  "/settings#video-learning": "data/user/settings/video_learning.json",
   "/settings#document-parsing": "data/user/settings/document_parsing.json",
   "/settings#memory": "data/user/settings/main.yaml",
   appearance: "data/user/settings/interface.json",
-  network: "data/user/settings/system.json",
-  workspace: "data/user/.runtime/workspaces.sqlite3",
   voice: "data/user/settings/model_catalog.json",
   multimodal: "data/user/settings/model_catalog.json",
   connections: "data/user/settings/model_catalog.json",
   "task-models": "data/user/settings/model_catalog.json",
   knowledge: "data/user/settings/document_parsing.json",
-  "video-learning": "data/user/settings/video_learning.json",
   starters: "data/user/settings/interface.json",
   memory: "data/user/settings/main.yaml",
   llm: "data/user/settings/model_catalog.json",

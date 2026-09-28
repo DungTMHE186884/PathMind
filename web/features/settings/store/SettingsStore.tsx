@@ -219,12 +219,6 @@ export const TOUR_STEPS: TourStep[] = [
   },
   {
     target: "tour-page-heading",
-    route: "/settings/network",
-    titleKey: "settingsTour.network.title",
-    descKey: "settingsTour.network.desc",
-  },
-  {
-    target: "tour-page-heading",
     route: "/settings/llm",
     titleKey: "settingsTour.models.title",
     descKey: "settingsTour.models.desc",

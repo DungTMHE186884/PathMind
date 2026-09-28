@@ -2,7 +2,7 @@ import i18n from "i18next";
 import { apiFetch, apiUrl } from "@/lib/api";
 
 export type BillingInterval = "monthly" | "yearly";
-export type PaymentGateway = "bank_transfer" | "stripe" | "crypto";
+export type PaymentGateway = "vnpay";
 export type PaymentStatus =
   | "pending"
   | "completed"
@@ -105,6 +105,8 @@ export interface CheckoutSession extends PaymentRecord {
   expires_at: string;
   transfer_content: string;
   qr_image_url: string | null;
+  /** VNPAY: signed payment page URL to send the browser to. */
+  checkout_url?: string | null;
   bank: {
     bank_bin: string;
     bank_name: string;
@@ -258,6 +260,15 @@ export function cancelPendingPayment(txId: string) {
     `/api/billing/payments/${encodeURIComponent(txId)}/cancel`,
     undefined,
     "Could not cancel the payment",
+  );
+}
+
+/** Back from VNPAY: forward the signed vnp_* parameters for verification. */
+export function confirmVnpayReturn(params: Record<string, string>) {
+  return postJson<PaymentRecord & { vnpay_code: string; vnpay_response_code?: string }>(
+    "/api/billing/payments/vnpay-return",
+    { params },
+    "Could not check the VNPAY payment",
   );
 }
 

@@ -19,7 +19,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
+
+from pathmind.api.routers.auth import require_admin
 
 router = APIRouter()
 
@@ -31,7 +33,8 @@ async def get_capabilities_settings_endpoint() -> dict[str, Any]:
     return capabilities_settings_dict()
 
 
-@router.put("/settings")
+# Writes the deployment-wide agents.yaml / main.yaml: administrators only.
+@router.put("/settings", dependencies=[Depends(require_admin)])
 async def put_capabilities_settings(payload: dict[str, Any]) -> dict[str, Any]:
     from pathmind.services.config.capabilities_settings import save_capabilities_settings
 

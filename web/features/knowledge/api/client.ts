@@ -165,6 +165,8 @@ export interface ModelOption {
 export interface ModelKindOptions {
   active: { profile_id: string | null; model_id: string | null };
   options: ModelOption[];
+  /** Set for regular users: the administrator picks this model. */
+  locked?: boolean;
 }
 
 export interface GraphRagModelCompatibility {

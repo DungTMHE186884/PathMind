@@ -344,6 +344,19 @@ export function confirmPayment(txId: string, note?: string): Promise<unknown> {
   );
 }
 
+export interface VnpayStatus {
+  configured: boolean;
+  environment: "sandbox" | "production";
+  payment_url: string;
+  tmn_code: string;
+  ipn_url: string;
+  return_url: string;
+}
+
+export function getVnpayStatus(): Promise<VnpayStatus> {
+  return adminJson("/api/admin/vnpay/status", "GET", undefined, "Failed to load VNPAY status");
+}
+
 export function rejectPayment(txId: string, note?: string): Promise<unknown> {
   return adminJson(
     `/api/admin/payments/${encodeURIComponent(txId)}/reject`,

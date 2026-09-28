@@ -3,9 +3,11 @@
 Flow
 ----
 1. ``POST /checkout``   → creates a *pending* ``Payment`` (nothing is activated).
-2. The user pays (VietQR bank transfer with the transaction code as content,
-   or a real gateway once integrated).
+2. The user pays on VNPAY's page (VNPAY-QR from any banking app, domestic ATM
+   card, or Visa/Mastercard/JCB) — see ``pathmind.services.vnpay``.
 3. The payment becomes ``completed`` through ONE of:
+   * VNPAY IPN (``GET /vnpay/ipn``) or the signed return page
+     (``POST /payments/vnpay-return``);
    * ``POST /webhook``  — signed (HMAC-SHA256) callback from the gateway /
      bank-sync service (PayOS, Casso, SePay, …);
    * ``POST /api/admin/payments/{tx}/confirm`` — admin confirms manually;
@@ -16,9 +18,8 @@ Environment
 -----------
 ``BILLING_DEMO_MODE``        "true" enables the simulate endpoint & demo gateways.
 ``BILLING_WEBHOOK_SECRET``   shared secret for ``X-Billing-Signature``; unset = webhook off.
-``BILLING_USD_VND_RATE``     conversion rate for VND display (default 25400).
-``BILLING_BANK_BIN`` / ``BILLING_BANK_ACCOUNT_NO`` / ``BILLING_BANK_ACCOUNT_NAME`` /
-``BILLING_BANK_NAME``        bank account used to build the VietQR image.
+``BILLING_USD_VND_RATE``     USD → VND rate for the amount charged by VNPAY (default 25400).
+``VNPAY_*``                  see ``pathmind.services.vnpay``.
 """
 
 from __future__ import annotations
@@ -30,13 +31,13 @@ import json
 import logging
 import os
 from typing import Any, Literal
-from urllib.parse import quote
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
+from pathmind.services import vnpay
 from pathmind.services.i18n import t as _t
 from pathmind.api.routers.auth import require_auth
 from pathmind.database.connection import get_db
@@ -60,7 +61,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 PAYMENT_TTL_HOURS = 24
-Gateway = Literal["bank_transfer", "stripe", "crypto"]
+Gateway = Literal["vnpay"]
 
 
 # ---------------------------------------------------------------------------
@@ -76,31 +77,16 @@ def demo_mode() -> bool:
     return _env_bool("BILLING_DEMO_MODE")
 
 
-def _bank_config() -> dict[str, str] | None:
-    bin_code = os.environ.get("BILLING_BANK_BIN", "").strip()
-    account = os.environ.get("BILLING_BANK_ACCOUNT_NO", "").strip()
-    if not bin_code or not account:
-        return None
-    return {
-        "bank_bin": bin_code,
-        "bank_name": os.environ.get("BILLING_BANK_NAME", "").strip(),
-        "account_no": account,
-        "account_name": os.environ.get("BILLING_BANK_ACCOUNT_NAME", "").strip(),
-    }
-
-
 def _gateways() -> list[dict[str, Any]]:
-    demo = demo_mode()
-    bank = _bank_config()
+    """One gateway: VNPAY (QR, domestic ATM cards, international cards)."""
     return [
         {
-            "id": "bank_transfer",
-            "label": _t("billing.gateway_vietqr"),
-            "enabled": bool(bank) or demo,
-            "demo_only": not bank,
+            "id": "vnpay",
+            "label": _t("billing.gateway_vnpay"),
+            "enabled": vnpay.configured() or demo_mode(),
+            "demo_only": not vnpay.configured(),
+            "sandbox": vnpay.is_sandbox() if vnpay.configured() else None,
         },
-        {"id": "stripe", "label": _t("billing.gateway_stripe"), "enabled": demo, "demo_only": True},
-        {"id": "crypto", "label": "Crypto USDT", "enabled": demo, "demo_only": True},
     ]
 
 
@@ -122,7 +108,7 @@ def _current_identity(current: Any) -> tuple[str, str | None, str | None]:
 class CheckoutRequest(BaseModel):
     plan_id: str
     interval: Literal["monthly", "yearly"] = "monthly"
-    gateway: Gateway = "bank_transfer"
+    gateway: Gateway = "vnpay"
 
 
 class SwitchPlanRequest(BaseModel):
@@ -144,12 +130,11 @@ class WebhookPayload(BaseModel):
 @router.get("/config")
 async def billing_config() -> dict[str, Any]:
     """Which payment methods are usable, and whether demo mode is on."""
-    bank = _bank_config()
     return {
         "demo_mode": demo_mode(),
         "usd_vnd_rate": usd_to_vnd_rate(),
         "gateways": _gateways(),
-        "bank": {"bank_name": bank["bank_name"], "account_name": bank["account_name"]} if bank else None,
+        "bank": None,
     }
 
 
@@ -207,6 +192,7 @@ async def get_billing_summary(
 @router.post("/checkout")
 async def create_checkout_session(
     payload: CheckoutRequest,
+    request: Request,
     current: Any = Depends(require_auth),
     db: Session = Depends(get_db),
 ) -> dict[str, Any]:
@@ -268,14 +254,16 @@ async def create_checkout_session(
         "bank": None,
         "message": "",
     }
-    bank = _bank_config()
-    if payload.gateway == "bank_transfer" and bank:
-        result["bank"] = bank
-        result["qr_image_url"] = (
-            f"https://img.vietqr.io/image/{bank['bank_bin']}-{bank['account_no']}-compact2.png"
-            f"?amount={amount_vnd}&addInfo={quote(tx_id)}&accountName={quote(bank['account_name'])}"
+    if payload.gateway == "vnpay" and vnpay.configured():
+        forwarded = request.headers.get("x-forwarded-for", "").split(",")[0].strip()
+        client_ip = forwarded or (request.client.host if request.client else "") or "127.0.0.1"
+        result["checkout_url"] = vnpay.build_payment_url(
+            transaction_id=tx_id,
+            amount_vnd=amount_vnd,
+            order_info=f"Thanh toan goi {plan.name or plan.id} ma {tx_id}",
+            client_ip=client_ip,
         )
-        result["message"] = _t("billing.checkout_msg_bank")
+        result["message"] = _t("billing.checkout_msg_vnpay")
     else:
         result["message"] = _t("billing.checkout_msg_demo")
     return result
@@ -491,3 +479,93 @@ async def payment_webhook(request: Request, db: Session = Depends(get_db)) -> di
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     return {"status": "ok", "transaction_id": payment.transaction_id}
+
+
+# ---------------------------------------------------------------------------
+# VNPAY (IPN = server-to-server, return = browser coming back to /pricing)
+# ---------------------------------------------------------------------------
+
+
+def apply_vnpay_result(db: Session, query: dict[str, Any], *, via: str) -> tuple[str, str]:
+    """Apply one signed VNPAY result. Returns VNPAY's ``(RspCode, Message)``.
+
+    ``00`` = updated, ``02`` = already confirmed (both end VNPAY's retries),
+    ``01`` = order not found, ``04`` = invalid amount, ``97`` = bad signature.
+    Idempotent: a repeated IPN or a return after the IPN changes nothing.
+    """
+    if not vnpay.verify(query):
+        return "97", "Invalid signature"
+    tx_id = str(query.get("vnp_TxnRef") or "")
+    payment = db.query(Payment).filter_by(transaction_id=tx_id).first() if tx_id else None
+    if payment is None:
+        return "01", "Order not found"
+    if vnpay.amount_vnd(query) != int(payment.amount_vnd or 0):
+        return "04", "Invalid amount"
+    if payment.status == "completed":
+        return "02", "Order already confirmed"
+
+    bank_tx = str(query.get("vnp_TransactionNo") or "")
+    if not vnpay.is_success(query):
+        if payment.status == "pending":
+            payment.status = "failed"
+            payment.note = (
+                f"VNPAY: ResponseCode {query.get('vnp_ResponseCode')}, "
+                f"TransactionStatus {query.get('vnp_TransactionStatus')}"
+            )[:500]
+            db.commit()
+        return "00", "Confirm Success"
+
+    if payment.status in {"canceled", "expired", "failed"}:
+        payment.status = "pending"  # the money was captured: honour it
+    payment.gateway_reference = f"vnpay:{bank_tx or tx_id}"[:255]
+    if query.get("vnp_BankCode"):
+        payment.note = f"VNPAY {query.get('vnp_BankCode')} {query.get('vnp_CardType') or ''}".strip()[:500]
+    try:
+        complete_payment(db, payment, confirmed_by=via)
+    except ValueError:
+        db.rollback()
+        logger.exception("VNPAY payment %s could not be completed", tx_id)
+        return "99", "Unknown error"
+    return "00", "Confirm Success"
+
+
+@router.get("/vnpay/ipn")
+async def vnpay_ipn(request: Request, db: Session = Depends(get_db)) -> dict[str, str]:
+    """VNPAY's server calls this (register the URL with VNPAY); always 200 + RspCode."""
+    query = dict(request.query_params)
+    try:
+        code, message = apply_vnpay_result(db, query, via="vnpay")
+    except Exception:
+        logger.exception("VNPAY IPN failed")
+        code, message = "99", "Unknown error"
+    logger.info("VNPAY IPN %s → %s %s", query.get("vnp_TxnRef"), code, message)
+    return {"RspCode": code, "Message": message}
+
+
+class VnpayReturnBody(BaseModel):
+    params: dict[str, str]
+
+
+@router.post("/payments/vnpay-return")
+async def vnpay_return(
+    body: VnpayReturnBody,
+    current: Any = Depends(require_auth),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    """The /pricing page forwards the signed ``vnp_…`` parameters VNPAY redirected with.
+
+    Works even when VNPAY cannot reach the IPN (e.g. local testing). The
+    signature proves the result came from VNPAY; the payment must belong to
+    the caller.
+    """
+    user_id, username, _ = _current_identity(current)
+    payment = _own_payment(db, str(body.params.get("vnp_TxnRef") or ""), user_id)
+    code, message = apply_vnpay_result(db, body.params, via="vnpay")
+    if code == "97":
+        raise HTTPException(status_code=400, detail="Invalid VNPAY signature")
+    db.refresh(payment)
+    return {
+        **payment_to_dict(payment, username),
+        "vnpay_code": code,
+        "vnpay_response_code": body.params.get("vnp_ResponseCode"),
+    }

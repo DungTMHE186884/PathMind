@@ -520,11 +520,18 @@ def check_turn_allowed(
     return check_token_quota(user_id, estimate, db, role=role)
 
 
-def record_llm_call(user_id: str, record: dict[str, Any], db: Session) -> tuple[int, float]:
+def record_llm_call(
+    user_id: str,
+    record: dict[str, Any],
+    db: Session,
+    *,
+    price: "model_pricing.Price | None" = None,
+) -> tuple[int, float]:
     """Charge one LLM call (a ``CallMeasurement`` record) to the user.
 
     Returns ``(credits, cost_usd)``. Writes the daily total and the per-model
-    breakdown used by the admin margin report.
+    breakdown used by the admin margin report. ``price`` overrides the lookup
+    by model name (embedding models missing from the price list).
     """
     if not user_id:
         return 0, 0.0
@@ -534,7 +541,8 @@ def record_llm_call(user_id: str, record: dict[str, Any], db: Session) -> tuple[
     if prompt <= 0 and completion <= 0:
         return 0, 0.0
     model = str(record.get("model") or "")
-    price = model_pricing.price_for(model, record.get("provider"), db=db)
+    if price is None:
+        price = model_pricing.price_for(model, record.get("provider"), db=db)
     cost = model_pricing.call_cost_usd(price, prompt, completion, cached)
     credits = model_pricing.usd_to_credits(cost)
 
@@ -773,6 +781,7 @@ def payment_to_dict(payment: Payment, username: str | None = None) -> dict[str, 
         "paid_at": _iso(payment.paid_at),
         "confirmed_by": payment.confirmed_by,
         "note": payment.note,
+        "gateway_reference": getattr(payment, "gateway_reference", None),
     }
 
 

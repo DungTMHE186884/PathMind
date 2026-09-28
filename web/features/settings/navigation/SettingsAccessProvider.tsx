@@ -1,8 +1,8 @@
 "use client";
 
-import { createContext, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, useContext, useMemo } from "react";
 
-import { fetchAuthStatus } from "@/lib/auth";
+import { useAuthSnapshot } from "@/hooks/useAuthStatus";
 import {
   PENDING_SETTINGS_ACCESS,
   settingsAccessFromAuthStatus,
@@ -17,19 +17,16 @@ const SettingsAccessContext = createContext<SettingsAccess>(
 export function SettingsAccessProvider({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
-  const [access, setAccess] = useState<SettingsAccess>(PENDING_SETTINGS_ACCESS);
-
-  useEffect(() => {
-    let cancelled = false;
-    void fetchAuthStatus().then((authStatus) => {
-      if (!cancelled) setAccess(settingsAccessFromAuthStatus(authStatus));
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  const value = useMemo(() => access, [access]);
+  // Shared auth store: settings open with the right pages for this account
+  // instead of waiting on a fresh /api/auth/status round trip every visit.
+  const status = useAuthSnapshot();
+  const value = useMemo<SettingsAccess>(
+    () =>
+      status === undefined
+        ? PENDING_SETTINGS_ACCESS
+        : settingsAccessFromAuthStatus(status.unavailable ? null : status),
+    [status],
+  );
   return (
     <SettingsAccessContext.Provider value={value}>
       {children}

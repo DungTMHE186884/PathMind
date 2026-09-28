@@ -31,22 +31,9 @@ const Billing = dynamic(
   () => import("@/features/settings/sections/BillingSettingsSection"),
   { loading },
 );
-const DataMigration = dynamic(() => import("@/features/settings/sections/DataMigrationSettingsSection"), { loading });
 const Status = dynamic(() => import("./SettingsRuntimePage"), { loading });
 const Appearance = dynamic(
   () => import("@/features/settings/sections/AppearanceSettingsSection"),
-  {
-    loading,
-  },
-);
-const Network = dynamic(
-  () => import("@/features/settings/sections/NetworkSettingsSection"),
-  {
-    loading,
-  },
-);
-const Workspace = dynamic(
-  () => import("@/features/settings/sections/WorkspaceSettingsSection"),
   {
     loading,
   },
@@ -110,10 +97,6 @@ const Video = dynamic(
     loading,
   },
 );
-const VideoLearning = dynamic(
-  () => import("@/features/settings/sections/VideoLearningSettingsSection"),
-  { loading },
-);
 const Tools = dynamic(
   () => import("@/features/settings/sections/ToolsSettingsSection"),
   {
@@ -150,15 +133,12 @@ const Multimodal = dynamic(
 const PAGES: Record<string, React.ComponentType> = {
   profile: Profile,
   billing: Billing,
-  "data-migration": DataMigration,
   voice: Voice,
   multimodal: Multimodal,
   archive: Archive,
   general: General,
   status: Status,
   appearance: Appearance,
-  network: Network,
-  workspace: Workspace,
   knowledge: Knowledge,
   memory: Memory,
   connections: Connections,
@@ -170,7 +150,6 @@ const PAGES: Record<string, React.ComponentType> = {
   stt: Stt,
   imagegen: Image,
   videogen: Video,
-  "video-learning": VideoLearning,
   tools: Tools,
   capabilities: Capabilities,
   starters: Starters,

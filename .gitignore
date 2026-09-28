@@ -284,3 +284,6 @@ dmypy.json
 
 # Local dev logs (start.bat)
 /logs/
+
+# Private runtime settings loaded by start.bat (VietQR / bank / SMTP credentials)
+local.env.bat

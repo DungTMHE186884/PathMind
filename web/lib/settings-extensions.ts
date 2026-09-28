@@ -16,18 +16,13 @@ import { apiFetch, apiUrl } from "@/lib/api";
 export const EXTENSION_ENDPOINTS = {
   ui: "/api/settings/ui",
   tools: "/api/settings/enabled-tools",
-  workspace: "/api/settings/workspace",
-  "video-learning": "/api/settings/video-learning",
-  "learner-profile": "/api/auth/profile/learner-profile",
   "document-parsing": "/api/settings/document-parsing",
   mineru: "/api/settings/mineru",
   "update-checks": "/api/system/update/settings",
   "chat-starters": "/api/settings/chat-starters",
-  "chat-attachments": "/api/settings/chat-attachments",
   "chat-timeout": "/api/settings/chat-response-timeout",
   capabilities: "/api/capabilities/settings",
   memory: "/api/memory/settings",
-  network: "/api/settings/network",
 } as const;
 
 export type ExtensionKey = keyof typeof EXTENSION_ENDPOINTS;

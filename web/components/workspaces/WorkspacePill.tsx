@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import Link from "next/link";
 import { Check, ChevronDown, Folder, FolderOpen, Plus } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
@@ -238,13 +237,7 @@ export function WorkspacePill({
             </form>
           ) : null}
           <div className="mt-1 flex items-center gap-1 border-t border-[color-mix(in_srgb,var(--border)_70%,transparent)] px-2 pt-1 text-[var(--muted-foreground)]">
-            <Link
-              href="/settings/workspace"
-              onClick={() => setOpen(false)}
-              className="min-w-0 flex-1 rounded-md px-1 py-1.5 text-[11.5px] transition-colors hover:bg-[var(--muted)] hover:text-[var(--foreground)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ring)]"
-            >
-              {t("Manage workspaces")}
-            </Link>
+            <span className="min-w-0 flex-1" />
             {!creating && (
               <button
                 type="button"
