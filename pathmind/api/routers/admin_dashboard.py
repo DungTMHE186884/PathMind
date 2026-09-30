@@ -86,6 +86,8 @@ class PlanFields(BaseModel):
     allow_custom_api_key: bool | None = None
     default_model: str | None = Field(default=None, max_length=120)
     is_active: bool | None = None
+    # Feature switches and limits (see services.entitlements); null limit = unlimited.
+    entitlements: dict[str, Any] | None = None
 
 
 class CreatePlanBody(PlanFields):
@@ -133,10 +135,20 @@ def _apply_plan_fields(plan: SubscriptionPlan, body: PlanFields) -> None:
         data["allowed_models"] = _clean_list(data["allowed_models"])
     if "features" in data and data["features"] is not None:
         data["features"] = _clean_list(data["features"])
+    raw_entitlements = data.pop("entitlements", None)
     for key, value in data.items():
         if value is None and key not in {"description", "features"}:
             continue
         setattr(plan, key, value)
+    if raw_entitlements is not None:
+        from pathmind.services import entitlements as ent_service
+
+        plan.entitlements = ent_service.normalize(
+            {**ent_service.plan_entitlements(plan), **raw_entitlements},
+            str(plan.id or ""),
+            plan.price_monthly,
+        )
+        ent_service.invalidate()
     if (plan.max_tokens_per_month or 0) and (plan.max_tokens_per_day or 0) > (
         plan.max_tokens_per_month or 0
     ):

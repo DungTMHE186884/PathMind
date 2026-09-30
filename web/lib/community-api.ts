@@ -1,6 +1,7 @@
 import i18n from "i18next";
 
 import { apiFetch, apiUrl } from "@/lib/api";
+import { notifyEntitlementsChanged } from "@/lib/entitlements-api";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -227,7 +228,14 @@ export function installCommunitySkill(
   slug: string,
   options: { name?: string; force?: boolean } = {},
 ): Promise<{ name: string; install_count: number; skipped: string[] }> {
-  return call(`${skillPath(slug)}/install`, send("POST", options), "Could not add the skill");
+  return call<{ name: string; install_count: number; skipped: string[] }>(
+    `${skillPath(slug)}/install`,
+    send("POST", options),
+    "Could not add the skill",
+  ).then((result) => {
+    notifyEntitlementsChanged();
+    return result;
+  });
 }
 
 // ---------------------------------------------------------------------------

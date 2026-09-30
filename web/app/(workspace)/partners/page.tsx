@@ -19,6 +19,9 @@ import ChannelIcon from "@/components/partners/ChannelIcon";
 import { useDiscussionModeLabel } from "@/components/partners/group/DiscussionModePicker";
 import PartnerAvatar from "@/components/partners/PartnerAvatar";
 import FriendsTab from "@/components/partners/FriendsTab";
+import { useEntitlements } from "@/components/access/EntitlementsContext";
+import { UsageMeter, useLimitReachedText } from "@/components/access/PlanGate";
+import { Tooltip } from "@/components/ui/Tooltip";
 
 function channelNames(partner: PartnerInfo): string[] {
   if (Array.isArray(partner.channels)) {
@@ -43,6 +46,9 @@ export default function PartnersPage() {
   // A group needs at least two members, so the entry point stays inert until
   // there is something to convene.
   const canFormGroup = partners.length >= 2;
+  const ent = useEntitlements();
+  const partnersFull = ent.atLimit("max_partners");
+  const limitText = useLimitReachedText();
 
   useEffect(() => {
     let cancelled = false;
@@ -84,8 +90,21 @@ export default function PartnersPage() {
                   "Companions with their own soul, library, and channels — reachable from your IM apps.",
                 )}
           </p>
+          <UsageMeter target="max_partners" label="Your partners" className="mt-1.5" />
         </div>
-        {activeTab === "partners" && (
+        {activeTab === "partners" && partnersFull ? (
+          <Tooltip label={t("New partner")} description={limitText("max_partners")} side="bottom">
+            <span className="inline-flex shrink-0 items-center">
+              <span
+                aria-disabled
+                className="inline-flex cursor-not-allowed items-center gap-1.5 rounded-lg bg-[var(--muted)] px-3.5 py-2 text-[12.5px] font-medium text-[var(--muted-foreground)]"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                {t("New partner")}
+              </span>
+            </span>
+          </Tooltip>
+        ) : activeTab === "partners" && (
           <Link
             href="/partners/new"
             className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-[var(--primary)] px-3.5 py-2 text-[12.5px] font-medium text-[var(--primary-foreground)] hover:opacity-90"

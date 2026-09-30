@@ -629,7 +629,7 @@ class PartnerManager:
         async def on_channel_activity(msg: Any, frame: dict[str, Any]) -> None:
             from pathmind.services.partners.interaction import personal_actor_id
 
-            activity_feed.publish(personal_actor_id(msg.actor), frame)
+            activity_feed.publish(personal_actor_id(msg.actor, partner_id), frame)
 
         runner = PartnerRunner(
             partner_id,
@@ -1118,6 +1118,16 @@ class PartnerManager:
 
     # ── Live web turns (refresh-survivable streaming) ─────────────
 
+    @staticmethod
+    def _live_turn_key(partner_id: str, session_key: str) -> str:
+        """In-flight web turns are per person: the same session key typed by
+        someone else never reattaches to (or stops) another person's answer."""
+        from pathmind.multi_user.context import get_current_user_or_none
+        from pathmind.services.partners.interaction import personal_actor_id
+
+        scope = personal_actor_id(get_current_user_or_none(), partner_id) or "shared"
+        return f"{scope}|{session_key}"
+
     def start_web_turn(
         self,
         partner_id: str,
@@ -1133,11 +1143,12 @@ class PartnerManager:
         instance = self._partners.get(partner_id)
         if not instance or not instance.running or not instance.runner:
             raise RuntimeError(f"Partner '{partner_id}' is not running")
-        existing = instance.live_turns.get(session_key)
+        turn_key = self._live_turn_key(partner_id, session_key)
+        existing = instance.live_turns.get(turn_key)
         if existing is not None and not existing.done:
             return existing
         turn = LiveTurn(user_content=content)
-        instance.live_turns[session_key] = turn
+        instance.live_turns[turn_key] = turn
         turn.task = asyncio.create_task(
             self._drive_web_turn(partner_id, session_key, content, media or [], turn),
             name=f"partner:{partner_id}:webturn",
@@ -1150,14 +1161,14 @@ class PartnerManager:
         instance = self._partners.get(partner_id)
         if not instance:
             return None
-        turn = instance.live_turns.get(session_key)
+        turn = instance.live_turns.get(self._live_turn_key(partner_id, session_key))
         return turn if turn is not None and not turn.done else None
 
     def stop_web_turn(self, partner_id: str, session_key: str) -> bool:
         instance = self._partners.get(partner_id)
         if not instance:
             return False
-        turn = instance.live_turns.get(session_key)
+        turn = instance.live_turns.get(self._live_turn_key(partner_id, session_key))
         if turn is None or turn.done or turn.task is None or turn.task.done():
             return False
         turn.task.cancel()

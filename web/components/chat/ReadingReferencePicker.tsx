@@ -1,5 +1,7 @@
 "use client";
 
+import { useEntitlements } from "@/components/access/EntitlementsContext";
+import { PlanLockedDialog } from "@/components/access/PlanGate";
 import { useEffect, useMemo, useState } from "react";
 import { BookMarked, Check, ChevronRight, Loader2, Search } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -53,7 +55,23 @@ function unitTitle(
   return outlineTitle?.trim() || nativeTitle?.trim() || fallback;
 }
 
-export default function ReadingReferencePicker({
+/** Immersive Reading is a paid-plan feature: on Free the picker upsells. */
+export default function ReadingReferencePicker(props: ReadingReferencePickerProps) {
+  const { has } = useEntitlements();
+  if (!has("reading")) {
+    return (
+      <PlanLockedDialog
+        open={props.open}
+        onClose={props.onClose}
+        title="Immersive Reading"
+        target="reading"
+      />
+    );
+  }
+  return <ReadingReferencePickerDialog {...props} />;
+}
+
+function ReadingReferencePickerDialog({
   open,
   initialReferences,
   onClose,

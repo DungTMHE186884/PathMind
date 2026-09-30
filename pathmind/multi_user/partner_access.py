@@ -108,6 +108,22 @@ def can_manage_partner(partner_id: str, user: CurrentUser | None = None) -> bool
     return bool(owner) and owner == actor.id
 
 
+def can_see_shared_partner_threads(partner_id: str, user: CurrentUser | None = None) -> bool:
+    """Whether the user may read the partner's shared thread pool.
+
+    That pool holds un-attributed traffic — channel messages from senders who
+    have not linked an account, plus the operator's own turns. Only the partner's
+    owner reads it; for admin-managed partners (no owner), admins do. Being an
+    admin is not enough on a partner someone else owns: other people's
+    conversations stay private.
+    """
+    actor = user or get_current_user()
+    owner = partner_owner_id(partner_id)
+    if owner:
+        return owner == actor.id
+    return actor.is_admin
+
+
 def can_use_partner(partner_id: str, user: CurrentUser | None = None) -> bool:
     """Whether the user may talk to *partner_id* — manage it, or be assigned it."""
     actor = user or get_current_user()

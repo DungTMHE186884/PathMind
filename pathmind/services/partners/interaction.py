@@ -60,10 +60,32 @@ def actor_for_account(user_id: str) -> CurrentUser | None:
     )
 
 
-def personal_actor_id(actor: CurrentUser | None) -> str | None:
-    """Account id requiring private Partner state, or ``None`` for legacy scope."""
-    if actor is None or actor.is_admin or is_partner_user_id(actor.id):
+def _partner_owner(partner_id: str) -> str:
+    try:
+        from pathmind.multi_user.partner_access import partner_owner_id
+
+        return partner_owner_id(partner_id) or ""
+    except Exception:  # pragma: no cover - a missing partner reads as admin-managed
+        return ""
+
+
+def personal_actor_id(actor: CurrentUser | None, partner_id: str | None = None) -> str | None:
+    """Account id requiring private Partner state, or ``None`` for the shared scope.
+
+    Regular users always get private state. An admin keeps the partner's shared
+    scope only on partners they operate — admin-managed ones (no owner) or their
+    own. On a partner someone else owns, an admin's conversations are private
+    like any user's: they never land in (or read back from) the owner's shared
+    thread pool, and the owner never sees them.
+    """
+    if actor is None or is_partner_user_id(actor.id):
         return None
+    if actor.is_admin:
+        if not partner_id:
+            return None
+        owner = _partner_owner(partner_id)
+        if not owner or owner == actor.id:
+            return None
     return actor.id
 
 
@@ -80,7 +102,7 @@ def session_sessions_dir(partner_id: str, actor: CurrentUser | None) -> Path:
     top-level ``sessions/`` holds the shared, un-attributed threads — admin
     turns and channel traffic from senders who have not linked an account.
     """
-    actor_id = personal_actor_id(actor)
+    actor_id = personal_actor_id(actor, partner_id)
     if actor_id is None:
         return get_partner_sessions_dir(partner_id)
     return get_partner_user_sessions_dir(partner_id, actor_id)
@@ -121,7 +143,7 @@ class PartnerTurnContext:
 
     @property
     def actor_id(self) -> str | None:
-        return personal_actor_id(self.actor)
+        return personal_actor_id(self.actor, self.partner_id)
 
 
 _current_turn: ContextVar[PartnerTurnContext | None] = ContextVar(
@@ -137,7 +159,7 @@ def build_partner_turn_context(
     legacy_own_memory: PathService,
     partner_name: str = "",
 ) -> PartnerTurnContext:
-    actor_id = personal_actor_id(actor)
+    actor_id = personal_actor_id(actor, partner_id)
     if actor_id is None:
         return PartnerTurnContext(
             partner_id=partner_id,

@@ -40,6 +40,8 @@ import {
 } from "@/lib/community-api";
 import { confirmAction } from "@/lib/confirm";
 import { notify } from "@/lib/notifications";
+import { useEntitlements } from "@/components/access/EntitlementsContext";
+import { useLimitReachedText } from "@/components/access/PlanGate";
 
 const MarkdownRenderer = dynamic(() => import("@/components/common/MarkdownRenderer"), {
   ssr: false,
@@ -59,6 +61,8 @@ export default function CommunitySkillPage() {
   const [skill, setSkill] = useState<CommunitySkillDetail | null>(null);
   const [error, setError] = useState("");
   const [installing, setInstalling] = useState(false);
+  const ent = useEntitlements();
+  const limitText = useLimitReachedText();
   const [editing, setEditing] = useState(false);
   const [discussing, setDiscussing] = useState(false);
   const [showSource, setShowSource] = useState(false);
@@ -79,6 +83,11 @@ export default function CommunitySkillPage() {
 
   async function install() {
     if (!skill) return;
+    // Updating a copy you already have adds nothing to the count.
+    if (!skill.installed_as && ent.atLimit("max_skills")) {
+      notify(limitText("max_skills"), { tone: "error" });
+      return;
+    }
     setInstalling(true);
     try {
       let res;

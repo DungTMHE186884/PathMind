@@ -27,6 +27,7 @@ from pathmind.multi_user.context import get_current_user
 from pathmind.multi_user.partner_access import (
     assert_partner_manageable,
     can_manage_partner,
+    can_see_shared_partner_threads,
     can_use_partner,
     identity_card,
     visible_partners,
@@ -730,6 +731,11 @@ async def create_partner(payload: CreatePartnerRequest):
 
 async def _create_partner(payload: CreatePartnerRequest) -> dict[str, Any]:
     """Validated creation transaction shared by the wizard and chat drafts."""
+    from pathmind.services import entitlements
+
+    entitlements.check_count_limit(
+        "max_partners", entitlements.own_partner_count(get_current_user().id)
+    )
     mgr = get_partner_manager()
     partner_id = slugify_partner_id(payload.partner_id or payload.name)
     if mgr.partner_exists(partner_id):
@@ -1342,9 +1348,10 @@ async def get_partner_history(
         partner_id,
         session_key=session_key,
         limit=limit,
-        # Owners/admins can observe unlinked channel traffic in the Partner's
-        # shared store; assigned users still see only their own linked account.
-        include_shared=not session_key and can_manage_partner(partner_id),
+        # Only the Partner's owner (or admins, for admin-managed Partners) reads
+        # the shared store of unlinked channel traffic. Everyone else — admins
+        # on someone else's Partner included — sees only their own threads.
+        include_shared=not session_key and can_see_shared_partner_threads(partner_id),
     )
 
 
@@ -1654,10 +1661,10 @@ async def partner_chat_ws(ws: WebSocket, partner_id: str):
         return
 
     logger.info("WebSocket connected for partner '%s'", partner_id)
-    activity_actor_id = personal_actor_id(get_current_user_or_none())
+    activity_actor_id = personal_actor_id(get_current_user_or_none(), partner_id)
     activity_actor_ids = (
         (activity_actor_id, None)
-        if activity_actor_id is not None and can_manage_partner(partner_id)
+        if activity_actor_id is not None and can_see_shared_partner_threads(partner_id)
         else (activity_actor_id,)
     )
 

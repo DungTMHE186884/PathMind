@@ -243,6 +243,12 @@ def activate_subscription(
         created_at=now,
     )
     db.add(sub)
+    try:
+        from pathmind.services.entitlements import invalidate
+
+        invalidate(user_id)
+    except Exception:  # pragma: no cover
+        pass
     return sub
 
 
@@ -717,7 +723,49 @@ def plan_features(plan: SubscriptionPlan, language: str | None = None) -> list[s
     ]
     if plan.allow_custom_api_key:
         features.append(_t("billing.feature_own_key", language=language))
+    features.extend(entitlement_features(plan, language))
     return features
+
+
+def entitlement_features(plan: SubscriptionPlan, language: str | None = None) -> list[str]:
+    """Pricing-page lines for what the plan unlocks (see services.entitlements)."""
+    from pathmind.services.entitlements import plan_entitlements
+
+    ent = plan_entitlements(plan)
+    lines = [_t("billing.feature_ent_practice", language=language)]
+    mastery, books = ent["mastery_per_month"], ent["books_per_month"]
+    if mastery is None and books is None:
+        lines.append(_t("billing.feature_ent_mastery_unlimited", language=language))
+    elif (mastery or books) and ent.get("allowance_period") == "lifetime":
+        lines.append(
+            _t("billing.feature_ent_trial", language=language, count=mastery or 0, books=books or 0)
+        )
+    elif mastery or books:
+        lines.append(
+            _t(
+                "billing.feature_ent_mastery",
+                language=language,
+                count=mastery if mastery is not None else "∞",
+                books=books if books is not None else "∞",
+            )
+        )
+    if ent["reading"] or ent["watching"]:
+        lines.append(_t("billing.feature_ent_reading", language=language))
+    if ent["space_extras"]:
+        lines.append(_t("billing.feature_ent_space", language=language))
+    if ent["community"]:
+        lines.append(_t("billing.feature_ent_community", language=language))
+    if ent["max_skills"] is None:
+        lines.append(_t("billing.feature_ent_skills_unlimited", language=language))
+    elif ent["max_skills"]:
+        key = "billing.feature_ent_skills_one" if ent["max_skills"] == 1 else "billing.feature_ent_skills"
+        lines.append(_t(key, language=language, count=ent["max_skills"]))
+    if ent["max_partners"] is None:
+        lines.append(_t("billing.feature_ent_partners_unlimited", language=language))
+    elif ent["max_partners"]:
+        key = "billing.feature_ent_partners_one" if ent["max_partners"] == 1 else "billing.feature_ent_partners"
+        lines.append(_t(key, language=language, count=ent["max_partners"]))
+    return lines
 
 
 def plan_to_dict(plan: SubscriptionPlan, language: str | None = None) -> dict[str, Any]:
@@ -739,7 +787,14 @@ def plan_to_dict(plan: SubscriptionPlan, language: str | None = None) -> dict[st
         "is_active": bool(plan.is_active),
         "custom_features": plan.features or [],
         "features": plan_features(plan, language),
+        "entitlements": _entitlements_dict(plan),
     }
+
+
+def _entitlements_dict(plan: SubscriptionPlan) -> dict[str, Any]:
+    from pathmind.services.entitlements import plan_entitlements
+
+    return plan_entitlements(plan)
 
 
 def subscription_to_dict(sub: Subscription | None) -> dict[str, Any] | None:

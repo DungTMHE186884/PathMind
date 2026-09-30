@@ -1,5 +1,6 @@
 import { activeWorkspaceId, scopedUrl } from "@/lib/workspace-scope";
 import { apiFetch, apiUrl, wsUrl } from "@/lib/api";
+import { notifyEntitlementsChanged } from "@/lib/entitlements-api";
 import {
   BookSocketOperationError,
   runBookSocketOperation,
@@ -158,7 +159,10 @@ export const bookApi = {
       type: "create_result";
       book: Book;
       proposal: BookProposal;
-    }>({ type: "create", ...payload }, "create_result", onEvent),
+    }>({ type: "create", ...payload }, "create_result", onEvent).finally(
+      // Counted when creation starts and given back if it fails.
+      notifyEntitlementsChanged,
+    ),
   confirmProposal: (
     book_id: string,
     proposal?: BookProposal,

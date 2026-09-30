@@ -28,6 +28,15 @@ import { listPersonas } from "@/lib/personas-api";
 import { listKnowledgeBases } from "@/features/knowledge/api/catalog";
 import { listSkills } from "@/lib/skills-api";
 import { usePersonalizationAccess } from "@/components/common/AdminOnlyGuard";
+import { useEntitlements } from "@/components/access/EntitlementsContext";
+import {
+  PlanLockBadge,
+  UsageMeter,
+  isPlanLocked,
+  usePlanLockedText,
+} from "@/components/access/PlanGate";
+import { PRICING_HREF, type PlanFeature, type PlanLimit } from "@/lib/entitlements-api";
+import { planRouteFor, requirementKey } from "@/lib/plan-routes";
 
 /**
  * Learning Space dashboard — the hub of `/space`.
@@ -280,6 +289,19 @@ export default function SpaceDashboard() {
   const tr = useCallback((l: Lang) => (zh ? l.zh : l.en), [zh]);
 
   const [counts, setCounts] = useState<Partial<Record<DashKey, number>>>({});
+  const ent = useEntitlements();
+  const lockedText = usePlanLockedText();
+  const planReady = !ent.loading || !!ent.data;
+  /** Plan requirement key when the plan locks this tile, else null. */
+  const lockOf = useCallback(
+    (item: DashboardItem): PlanFeature | PlanLimit | null => {
+      const route = planRouteFor(item.href);
+      return route && isPlanLocked(ent, route.requires)
+        ? requirementKey(route.requires)
+        : null;
+    },
+    [ent]
+  );
 
   const capabilityAvailable = useCapabilityFilter();
   const personalization = usePersonalizationAccess();
@@ -302,9 +324,10 @@ export default function SpaceDashboard() {
     let cancelled = false;
     // Each tile loads independently so one slow/failed endpoint never blanks
     // the whole dashboard.
-    if (!personalization.ready) return;
+    if (!personalization.ready || !planReady) return;
+    // Locked tiles are not counted: their endpoints answer 402 on this plan.
     const items = GROUPS.flatMap(group => group.items).filter(
-      item => !item.adminOnly || personalization.allowed
+      item => (!item.adminOnly || personalization.allowed) && !lockOf(item)
     );
     for (const item of items) {
       if (!item.load) continue;
@@ -320,7 +343,7 @@ export default function SpaceDashboard() {
     return () => {
       cancelled = true;
     };
-  }, [personalization.ready, personalization.allowed]);
+  }, [personalization.ready, personalization.allowed, planReady, lockOf]);
 
   return (
     <div>
@@ -349,6 +372,8 @@ export default function SpaceDashboard() {
                   item={item}
                   count={counts[item.key]}
                   tr={tr}
+                  locked={lockOf(item)}
+                  lockedText={lockedText}
                 />
               ))}
             </div>
@@ -363,10 +388,15 @@ function DashboardCard({
   item,
   count,
   tr,
+  locked = null,
+  lockedText,
 }: {
   item: DashboardItem;
   count: number | undefined;
   tr: (l: Lang) => string;
+  /** Plan requirement locking this tile (it then links to pricing). */
+  locked?: PlanFeature | PlanLimit | null;
+  lockedText?: (target: PlanFeature | PlanLimit) => string;
 }) {
   const Icon = item.icon;
   const loaded = count !== undefined;
@@ -377,8 +407,11 @@ function DashboardCard({
 
   return (
     <Link
-      href={item.href}
-      className="group relative flex flex-col rounded-xl border border-[var(--border)] bg-[var(--card)] p-4 transition-all duration-150 hover:-translate-y-0.5 hover:border-[var(--foreground)]/20 hover:shadow-[0_6px_20px_-12px_rgba(0,0,0,0.25)]"
+      href={locked ? PRICING_HREF : item.href}
+      aria-label={locked && lockedText ? `${tr(item.title)} — ${lockedText(locked)}` : undefined}
+      className={`group relative flex flex-col rounded-xl border border-[var(--border)] p-4 transition-all duration-150 hover:-translate-y-0.5 hover:border-[var(--foreground)]/20 hover:shadow-[0_6px_20px_-12px_rgba(0,0,0,0.25)] ${
+        locked ? "bg-[var(--secondary)]/40" : "bg-[var(--card)]"
+      }`}
     >
       <div className="flex items-start gap-3">
         <span
@@ -391,7 +424,11 @@ function DashboardCard({
           <h3 className="truncate text-[14.5px] font-medium leading-tight tracking-tight text-[var(--foreground)]">
             {tr(item.title)}
           </h3>
-          {item.unit ? (
+          {locked && lockedText ? (
+            <p className="mt-1.5 text-[12px] text-[var(--muted-foreground)]">
+              {lockedText(locked)}
+            </p>
+          ) : item.unit ? (
             <div className="mt-1 flex items-baseline gap-1.5">
               {loaded ? (
                 <>
@@ -408,14 +445,21 @@ function DashboardCard({
             </div>
           ) : null}
         </div>
-        <ArrowUpRight
-          size={16}
-          className="shrink-0 text-[var(--muted-foreground)]/40 transition-colors group-hover:text-[var(--foreground)]"
-        />
+        {locked ? (
+          <PlanLockBadge target={locked} />
+        ) : (
+          <ArrowUpRight
+            size={16}
+            className="shrink-0 text-[var(--muted-foreground)]/40 transition-colors group-hover:text-[var(--foreground)]"
+          />
+        )}
       </div>
       <p className="mt-3 text-[12.5px] leading-relaxed text-[var(--muted-foreground)]">
         {tr(item.blurb)}
       </p>
+      {!locked && item.key === "skills" ? (
+        <UsageMeter target="max_skills" label="Your own skills" className="mt-2" inLink />
+      ) : null}
       {item.credit ? (
         <span className="mt-2.5 inline-flex items-center gap-1 self-start text-[11px] leading-none text-[var(--muted-foreground)] opacity-60">
           <Github size={11} strokeWidth={1.8} aria-hidden />

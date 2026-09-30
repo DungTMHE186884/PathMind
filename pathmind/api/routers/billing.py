@@ -189,6 +189,14 @@ async def get_billing_summary(
     return get_user_usage_summary(user_id, db, role=role)
 
 
+@router.get("/entitlements")
+async def get_entitlements(current: Any = Depends(require_auth)) -> dict[str, Any]:
+    """What the caller's plan unlocks, their usage and which plan to upgrade to."""
+    from pathmind.services import entitlements
+
+    return entitlements.summary()
+
+
 @router.post("/checkout")
 async def create_checkout_session(
     payload: CheckoutRequest,

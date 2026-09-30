@@ -1,5 +1,7 @@
 "use client";
 
+import { useEntitlements } from "@/components/access/EntitlementsContext";
+import { PlanLockedDialog } from "@/components/access/PlanGate";
 import { useEffect, useMemo, useState } from "react";
 import {
   Bookmark,
@@ -41,7 +43,23 @@ const FILTER_MODES: { value: FilterMode; label: string }[] = [
   { value: "wrong", label: "Wrong Only" },
 ];
 
-export default function QuestionBankPicker({
+/** The Question Bank is a paid-plan feature: on Free the picker upsells. */
+export default function QuestionBankPicker(props: QuestionBankPickerProps) {
+  const { has } = useEntitlements();
+  if (!has("space_extras")) {
+    return (
+      <PlanLockedDialog
+        open={props.open}
+        onClose={props.onClose}
+        title="Question Bank"
+        target="space_extras"
+      />
+    );
+  }
+  return <QuestionBankPickerDialog {...props} />;
+}
+
+function QuestionBankPickerDialog({
   open,
   onClose,
   onApply,

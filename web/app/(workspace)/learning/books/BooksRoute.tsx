@@ -393,7 +393,7 @@ function BookPageInner() {
     setView('creator')
   }
 
-  const creation = useLearningCreation(handleNewBook)
+  const creation = useLearningCreation(handleNewBook, 'books_per_month')
 
   // Defined after handleSelectBook below.
   const lastDeepLinkedBookId = useRef<string | null>(null)

@@ -402,7 +402,9 @@ async def list_topic_index():
 @router.post("/topics/draft")
 async def generate_topic_route(body: GenerateTopicDraftRequest):
     from pathmind.learning.topic_generation import TopicGenerationError, generate_topic_draft
+    from pathmind.services import entitlements
 
+    entitlements.check_monthly("mastery_per_month")
     try:
         return await generate_topic_draft(
             name=body.name,
@@ -443,43 +445,51 @@ async def create_topic(body: ConfirmTopicRequest):
         materialize_modules,
     )
 
-    path_id = f"topic_{uuid.uuid4().hex}"
-    modules = []
-    if body.modules:
-        try:
-            modules = materialize_modules(
-                path_id, body.modules, strict=True, module_limit=MAX_MODULE_LIMIT
-            )
-        except TopicGenerationError as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
-    sources = _topic_sources(body.sources)
-    store = LearningStore()
-    metadata = TopicMetadata(
-        path_id=path_id,
-        goal=body.goal.strip(),
-        description=body.description.strip(),
-        emoji=body.emoji.strip() or "🧭",
-        map_seed=store._default_map_seed(path_id),
-    )
-    # A name is a different object from a goal: the goal is the sentence they
-    # wrote, the name is the label they will recognise in a list months later.
-    # The task model writes it; the truncated goal stands in when it cannot.
-    resolved_name = body.name.strip()
-    if not resolved_name:
-        from pathmind.learning.topic_naming import suggest_topic_name
+    from pathmind.services import entitlements
 
-        resolved_name = await suggest_topic_name(
-            body.goal,
-            source_labels=[source.label for source in sources],
-        ) or _provisional_name(body.goal)
-    progress = await asyncio.to_thread(
-        LearningService(store).create_topic,
-        path_id,
-        name=resolved_name,
-        modules=modules,
-        metadata=metadata,
-        sources=sources,
-    )
+    # Reserved up front so parallel requests cannot all slip past the check.
+    entitlements.reserve_monthly("mastery_per_month")
+    try:
+        path_id = f"topic_{uuid.uuid4().hex}"
+        modules = []
+        if body.modules:
+            try:
+                modules = materialize_modules(
+                    path_id, body.modules, strict=True, module_limit=MAX_MODULE_LIMIT
+                )
+            except TopicGenerationError as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
+        sources = _topic_sources(body.sources)
+        store = LearningStore()
+        metadata = TopicMetadata(
+            path_id=path_id,
+            goal=body.goal.strip(),
+            description=body.description.strip(),
+            emoji=body.emoji.strip() or "🧭",
+            map_seed=store._default_map_seed(path_id),
+        )
+        # A name is a different object from a goal: the goal is the sentence they
+        # wrote, the name is the label they will recognise in a list months later.
+        # The task model writes it; the truncated goal stands in when it cannot.
+        resolved_name = body.name.strip()
+        if not resolved_name:
+            from pathmind.learning.topic_naming import suggest_topic_name
+
+            resolved_name = await suggest_topic_name(
+                body.goal,
+                source_labels=[source.label for source in sources],
+            ) or _provisional_name(body.goal)
+        progress = await asyncio.to_thread(
+            LearningService(store).create_topic,
+            path_id,
+            name=resolved_name,
+            modules=modules,
+            metadata=metadata,
+            sources=sources,
+        )
+    except BaseException:
+        entitlements.release_monthly("mastery_per_month")
+        raise
     payload = await asyncio.to_thread(_topic_payload, store, path_id)
     payload["path_revision"] = progress.version
     return payload

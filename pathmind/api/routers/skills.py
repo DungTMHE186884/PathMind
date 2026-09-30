@@ -223,6 +223,9 @@ async def get_skill(name: str) -> dict[str, object]:
 
 @router.post("/create")
 async def create_skill(payload: CreateSkillRequest) -> dict[str, object]:
+    from pathmind.services.entitlements import check_skill_limit
+
+    check_skill_limit()
     service = get_skill_service()
     try:
         info = service.create(
@@ -251,8 +254,10 @@ async def install_skill(payload: InstallSkillRequest) -> dict[str, object]:
     """
     import asyncio
 
+    from pathmind.services.entitlements import check_skill_limit
     from pathmind.services.skill.hub import HubError, install_from_hub
 
+    check_skill_limit(payload.name if payload.force else None)
     service = get_skill_service()
     try:
         outcome = await asyncio.to_thread(

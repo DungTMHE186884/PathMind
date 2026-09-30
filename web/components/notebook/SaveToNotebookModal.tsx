@@ -1,5 +1,7 @@
 "use client";
 
+import { useEntitlements } from "@/components/access/EntitlementsContext";
+import { PlanLockedDialog } from "@/components/access/PlanGate";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Check,
@@ -145,7 +147,23 @@ function indexesForLastTurns(
   return result;
 }
 
-export default function SaveToNotebookModal({
+/** Notebooks are a paid-plan feature: on Free the dialog explains and upsells. */
+export default function SaveToNotebookModal(props: SaveToNotebookModalProps) {
+  const { has } = useEntitlements();
+  if (!has("space_extras")) {
+    return (
+      <PlanLockedDialog
+        open={props.open && !!props.payload}
+        onClose={props.onClose}
+        title="Save to Notebook"
+        target="space_extras"
+      />
+    );
+  }
+  return <SaveToNotebookDialog {...props} />;
+}
+
+function SaveToNotebookDialog({
   open,
   payload,
   messages,

@@ -11,6 +11,7 @@ import {
 } from 'lucide-react'
 
 import type { Capability } from '@/lib/capability-routes'
+import type { PlanRequirement } from '@/lib/plan-routes'
 
 export interface NavEntry {
   href: string
@@ -20,6 +21,8 @@ export interface NavEntry {
   defaultCollapsed?: boolean
   /** Model capability this feature needs; locked when the user lacks it. */
   requires?: Capability
+  /** Plan entitlement this feature needs; shown locked with an upgrade link. */
+  plan?: PlanRequirement
 }
 
 /**
@@ -59,6 +62,7 @@ export const PRIMARY_NAV: NavEntry[] = [
     label: 'Community',
     icon: MessagesSquare,
     tooltipKey: 'Community tooltip',
+    plan: { feature: 'community' },
   },
 ]
 

@@ -1,5 +1,6 @@
 import i18n from "i18next";
 import { apiFetch, apiUrl } from "@/lib/api";
+import type { PlanEntitlements } from "@/lib/entitlements-api";
 
 export type BillingInterval = "monthly" | "yearly";
 export type PaymentGateway = "vnpay";
@@ -32,6 +33,8 @@ export interface SubscriptionPlanItem {
   features: string[];
   /** Only the admin-entered features (empty = auto-generated). */
   custom_features?: string[];
+  /** Paid-only surfaces and allowances (null limit = unlimited). */
+  entitlements?: PlanEntitlements;
 }
 
 export interface SubscriptionInfo {

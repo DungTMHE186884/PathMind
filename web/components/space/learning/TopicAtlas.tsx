@@ -18,6 +18,7 @@ import {
   masterySessionRoute,
 } from '@/lib/mastery-mode'
 import { setPendingPrompt } from '@/lib/pending-prompt'
+import { UsageMeter } from '@/components/access/PlanGate'
 
 import { useLibraryFilter } from '@/components/learning/LibraryWorkspace'
 import { libraryItemKey } from '@/lib/learning-library'
@@ -69,7 +70,10 @@ export function TopicAtlas({
         </button>
       }
     >
-      <div className="mt-6 flex items-center justify-between border-b border-border pb-4">{control}</div>
+      <div className="mt-6 flex flex-wrap items-center justify-between gap-3 border-b border-border pb-4">
+        {control}
+        <UsageMeter target="mastery_per_month" label="Paths created" monthly />
+      </div>
       {dueCount > 0 && (
         <section className="mt-8 flex flex-col gap-3 rounded-lg border border-[var(--border)] bg-[var(--muted-foreground)]/[0.07] px-4 py-3.5 text-sm text-[var(--foreground)] sm:flex-row sm:items-center">
           <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[var(--muted-foreground)]/15 text-[var(--muted-foreground)]">

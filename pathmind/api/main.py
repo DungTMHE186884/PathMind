@@ -564,11 +564,20 @@ _auth = [Depends(require_learning_surface)]
 # process-wide, so management is admin-gated in multi-user deployments
 # (single-user local runs are implicitly admin — no behaviour change there).
 _admin = [Depends(require_admin)]
+# Plan entitlements (services/entitlements.py): paid-only surfaces answer 402
+# with an upgrade hint. They run after ``_auth`` so the current user is known.
+from pathmind.services import entitlements as _ent  # noqa: E402
+
+_community = _auth + [Depends(_ent.community_guard)]
+_reading = _auth + [Depends(_ent.reading_guard)]
+_watching = _auth + [Depends(_ent.feature_dependency("watching"))]
+_notebooks = _auth + [Depends(_ent.notebook_guard)]
+_question_bank = _auth + [Depends(_ent.question_bank_guard)]
 
 app.include_router(billing.router, prefix="/api/billing", tags=["billing"])
 app.include_router(friends.router, prefix="/api/friends", tags=["friends"], dependencies=_auth)
 app.include_router(partner_shares.router, prefix="/api/social", tags=["social"], dependencies=_auth)
-app.include_router(community.router, prefix="/api/community", tags=["community"], dependencies=_auth)
+app.include_router(community.router, prefix="/api/community", tags=["community"], dependencies=_community)
 app.include_router(admin_dashboard.router, prefix="/api/admin", tags=["admin"], dependencies=_admin)
 
 app.include_router(
@@ -606,15 +615,15 @@ app.include_router(
     tags=["mastery-path"],
 )
 app.include_router(co_writer.router, prefix="/api", tags=["documents"], dependencies=_auth)
-app.include_router(notebook.router, prefix="/api", tags=["notebooks"], dependencies=_auth)
+app.include_router(notebook.router, prefix="/api", tags=["notebooks"], dependencies=_notebooks)
 app.include_router(book.router, prefix="/api", tags=["books"], dependencies=_auth)
 app.include_router(book.ws_router, prefix="/ws", tags=["books"])
-app.include_router(reading.router, prefix="/api/reading", tags=["reading"], dependencies=_auth)
+app.include_router(reading.router, prefix="/api/reading", tags=["reading"], dependencies=_reading)
 app.include_router(
     reading_extensions.router,
     prefix="/api/reading",
     tags=["reading-extensions"],
-    dependencies=_auth,
+    dependencies=_reading,
 )
 app.include_router(memory.router, prefix="/api/memory", tags=["memory"], dependencies=_auth)
 app.include_router(
@@ -635,7 +644,7 @@ app.include_router(
     question_notebook.router,
     prefix="/api/question-notebook",
     tags=["question-notebook"],
-    dependencies=_auth,
+    dependencies=_question_bank,
 )
 app.include_router(
     practice.router,
@@ -700,7 +709,7 @@ app.include_router(
     video_learning.router,
     prefix="/api/video-learning",
     tags=["video-learning"],
-    dependencies=_auth,
+    dependencies=_watching,
 )
 app.include_router(
     visualizers.router,

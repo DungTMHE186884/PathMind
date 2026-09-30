@@ -8,6 +8,19 @@ import { ArrowUpRight, ArrowRight, Check, X } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 type LearningKind = LearningSurface['kind']
 import { LEARNING_SURFACES, type LearningSurface } from './surfaces'
+import { useEntitlements } from '@/components/access/EntitlementsContext'
+import { PlanLockBadge, UpgradeLink, UsageMeter, isPlanLocked, usePlanLockedText } from '@/components/access/PlanGate'
+import { planRouteFor, requirementKey } from '@/lib/plan-routes'
+
+/** The plan requirement of a surface, and whether it is locked right now. */
+function useSurfaceLock() {
+  const ent = useEntitlements()
+  return (surface: LearningSurface) => {
+    const route = planRouteFor(surface.href)
+    if (!route) return { locked: false, target: null }
+    return { locked: isPlanLocked(ent, route.requires), target: requirementKey(route.requires) }
+  }
+}
 
 const FOCUSABLE = 'a[href], input:not([disabled]), select:not([disabled]), button:not([disabled]), [tabindex]:not([tabindex="-1"])'
 const tileClass = (accent: string) =>
@@ -18,6 +31,7 @@ const titleClass = 'text-[16px] font-semibold tracking-[-0.02em]'
 export function LearningWays() {
   const { t } = useTranslation()
   const reduceMotion = useReducedMotion()
+  const lockOf = useSurfaceLock()
   const [openKind, setOpenKind] = useState<LearningKind | null>(null)
   const triggerRef = useRef<HTMLButtonElement | null>(null)
   const id = useId()
@@ -37,6 +51,7 @@ export function LearningWays() {
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
           {LEARNING_SURFACES.map(surface => {
             const opened = openKind === surface.kind
+            const lock = lockOf(surface)
             return (
               <motion.div
                 key={surface.kind}
@@ -67,11 +82,15 @@ export function LearningWays() {
                     >
                       <surface.icon size={21} aria-hidden="true" />
                     </motion.span>
-                    <ArrowUpRight
-                      size={18}
-                      aria-hidden="true"
-                      className="text-muted-foreground/50 transition duration-200 group-hover:-translate-y-0.5 group-hover:translate-x-0.5 group-hover:text-foreground group-focus-within:text-foreground motion-reduce:transform-none"
-                    />
+                    {lock.locked && lock.target ? (
+                      <PlanLockBadge target={lock.target} />
+                    ) : (
+                      <ArrowUpRight
+                        size={18}
+                        aria-hidden="true"
+                        className="text-muted-foreground/50 transition duration-200 group-hover:-translate-y-0.5 group-hover:translate-x-0.5 group-hover:text-foreground group-focus-within:text-foreground motion-reduce:transform-none"
+                      />
+                    )}
                   </span>
                   <motion.h3
                     layout="position"
@@ -89,6 +108,15 @@ export function LearningWays() {
                   >
                     {t(surface.description)}
                   </motion.p>
+                  {lock.target === 'books_per_month' || lock.target === 'mastery_per_month' ? (
+                    <UsageMeter
+                      target={lock.target}
+                      label={lock.target === 'books_per_month' ? 'Books created' : 'Paths created'}
+                      monthly
+                      inLink
+                      className="mt-auto pt-3"
+                    />
+                  ) : null}
                 </button>
               </motion.div>
             )
@@ -131,6 +159,8 @@ function WayPanel({
   triggerRef: React.RefObject<HTMLButtonElement | null>
 }) {
   const { t } = useTranslation()
+  const lock = useSurfaceLock()(surface)
+  const lockedText = usePlanLockedText()
   const rootRef = useRef<HTMLDivElement>(null)
   const panelRef = useRef<HTMLDivElement>(null)
   const fade: Transition = { duration: reduceMotion ? 0 : 0.2 }
@@ -283,6 +313,17 @@ function WayPanel({
           transition={{ ...fade, layout: spring }}
           className="relative flex shrink-0 flex-wrap items-center justify-end gap-2 p-6 sm:px-8"
         >
+          {lock.target && !lock.locked && (lock.target === 'mastery_per_month' || lock.target === 'books_per_month') ? (
+            <UsageMeter
+              target={lock.target}
+              label={lock.target === 'books_per_month' ? 'Books created' : 'Paths created'}
+              monthly
+              className="mr-auto"
+            />
+          ) : null}
+          {lock.locked && lock.target ? (
+            <p className="mr-auto text-[12px] text-muted-foreground">{lockedText(lock.target)}</p>
+          ) : null}
           <button
             type="button"
             onClick={close}
@@ -290,6 +331,9 @@ function WayPanel({
           >
             {t('Go back')}
           </button>
+          {lock.locked && lock.target ? (
+            <UpgradeLink target={lock.target} />
+          ) : (
           <Link
             href={surface.href}
             className="group flex items-center gap-3 rounded-xl bg-primary px-5 py-2.5 text-[13px] font-medium text-primary-foreground shadow-sm transition hover:brightness-110 active:scale-[0.98] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring motion-reduce:transform-none"
@@ -301,6 +345,7 @@ function WayPanel({
               className="transition-transform group-hover:translate-x-0.5 motion-reduce:transform-none"
             />
           </Link>
+          )}
         </motion.div>
       </motion.div>
     </motion.div>,

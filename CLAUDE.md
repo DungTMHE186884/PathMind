@@ -5,7 +5,7 @@ PathMind là bản đổi tên + tùy biến của DeepTutor (HKUDS, Apache-2.0 
 và các quy ước cần nhớ khi sửa code. Kiến trúc lõi (Tools / Capabilities / ChatOrchestrator / StreamBus)
 nằm trong `pathmind/`.
 
-> Cập nhật lần cuối: 2026-09-28 — Skills cho mọi người dùng, Partners en/zh + chat phòng học, Cộng đồng (Skill Hub, Forum, báo cáo vi phạm, thông báo), bỏ Import from EduHub. Trước đó: VNPAY, dọn cài đặt hosted, web production, tín dụng lập chỉ mục.
+> Cập nhật lần cuối: 2026-09-30 — Gói Plus + quyền theo gói (entitlements), Partner chat riêng tư với admin. Trước đó (2026-09-28): Skills cho mọi người dùng, Partners en/zh + chat phòng học, Cộng đồng (Skill Hub, Forum, báo cáo vi phạm, thông báo), bỏ Import from EduHub. Trước đó: VNPAY, dọn cài đặt hosted, web production, tín dụng lập chỉ mục.
 
 ---
 
@@ -35,6 +35,13 @@ nằm trong `pathmind/`.
 Chú thích: ✅ hoàn thiện · 🟡 chạy được nhưng chưa đầy đủ · ⚠️ chưa làm / chỉ demo.
 
 ---
+
+### Quyền riêng tư chat Partner (2026-09-29)
+- **Admin không còn đọc được chat của người khác với Partner.** Trước đây admin luôn dùng "kho chung" của mỗi Partner (`data/partners/<id>/sessions/`), nơi cũng chứa tin nhắn kênh IM chưa liên kết tài khoản, và mọi admin đều đọc được kho chung (lịch sử + luồng hoạt động trực tiếp) của mọi Partner.
+- Giờ `personal_actor_id(actor, partner_id)` (`services/partners/interaction.py`): trên Partner **người khác sở hữu**, admin có thư mục chat riêng `users/<admin_id>/sessions` như người dùng thường; chỉ trên Partner do admin quản lý (không có `owner_id`) hoặc của chính admin thì admin mới dùng kho chung như cũ.
+- Kho chung chỉ **chủ Partner** đọc được (`multi_user/partner_access.can_see_shared_partner_threads`; Partner không có chủ ⇒ admin). Áp dụng cho `GET /api/partners/{id}/history` (`include_shared`) và luồng hoạt động WebSocket.
+- Lượt trả lời đang chạy (`live_turns`) gắn theo từng người (`PartnerManager._live_turn_key`): gõ trùng `session_key` không nhìn/dừng được câu trả lời của người khác.
+- Tin nhắn cũ admin đã gửi vào kho chung của Partner người khác vẫn nằm ở đó (chủ Partner vẫn thấy); admin không còn xem được. Test: `tests/services/test_partner_privacy.py`.
 
 ### Cộng đồng: Skill Hub + Forum (2026-09-28)
 - Menu **Community** (sidebar). Backend `api/routers/community.py` tại `/api/community`, logic đóng gói/cài skill ở `services/community.py`. Bảng mới: `community_skills`, `community_skill_installs`, `forum_posts`, `forum_comments`, `community_votes` (tự tạo khi khởi động).
@@ -219,6 +226,42 @@ script dev (`scripts/check_*`, `update.py`, …); toàn bộ test (`tests/`, `we
   Model chỉ hiện nếu **có trong catalog** (Settings → Models) — gói liệt kê model chưa cấu hình thì không có tác dụng.
   Profile owner-bound (Codex/CodeBuddy) không bao giờ mở qua gói.
 
+### Quyền theo gói (entitlements, 2026-09-29)
+- `services/entitlements.py` + cột JSON `subscription_plans.entitlements` (admin sửa ở `/admin/plans` →
+  "What this plan unlocks"; `null`/ô trống = không giới hạn, `0` = không có). Seed điền mặc định khi cột còn NULL.
+- Gói: **Free** (0$), **Plus** (4,99$/tháng, 49$/năm, 11M tín dụng/tháng, 1M/ngày, 2 GB, tệp 25 MB, 8 model),
+  **Pro** (9,99$), **Unlimited Campus** (`enterprise`, 29,99$).
+
+  | | Free | Plus | Pro | Unlimited |
+  |---|---|---|---|---|
+  | Practice, lịch sử chat, Knowledge Center | ✅ | ✅ | ✅ | ✅ |
+  | Mastery Path mới | 1 (dùng thử, cả đời) | 10/tháng | ∞ | ∞ |
+  | Book mới | 1 (dùng thử, cả đời) | 10/tháng | ∞ | ∞ |
+  | Reading, Watching | ❌ | ✅ | ✅ | ✅ |
+  | Notebooks, Question Bank, Skills (Learning Space) | ❌ | ✅ | ✅ | ✅ |
+  | Community | ❌ | ✅ | ✅ | ✅ |
+  | Skill của riêng mình (tạo/tải lên/thêm từ Community, EduHub; built-in không tính) | 0 | 5 | 20 | ∞ |
+  | Partner tự tạo | 1 | 3 | 10 | ∞ |
+
+- `allowance_period`: `month` (đếm theo tháng UTC) hoặc `lifetime` (Free: tổng mọi lần tạo, không reset — lỗi `plans.limit_*_trial`). Seed tự chuyển Free bản đầu (0/0) sang 1/1 lifetime. Trang Books / Mastery / thẻ Learning hub hiện "x / giới hạn" (Free: "free trial", Plus: "this month").
+- Admin không bao giờ bị giới hạn. Hạ gói **không xoá gì**, chỉ chặn tạo mới; trang đã khoá vẫn giữ dữ liệu.
+- Backend trả **402** kèm gợi ý gói rẻ nhất mở được (`plans.*` trong i18n):
+  router `community` / `reading` (+ reading_extensions, trừ `GET /workspaces/index` cho nhãn lịch sử chat) /
+  `video-learning` gắn dependency trong `main.py`; `notebook_guard` (GET `/api/notebooks` trả `[]` + `locked`),
+  `question_bank_guard` (để mở `entries/upsert`, `lookup/by-question`, `GET/PATCH entries/{id}` vì quiz trong chat
+  và Practice ghi vào đó). Đếm tháng (UTC) trong bảng `feature_usage` (`check_monthly`/`record_monthly`) ở
+  `POST /api/mastery-paths/topics(/draft)` và `POST /api/books` + WS `create`. `check_skill_limit` ở
+  `skills/create|install` và `community/skills/{slug}/install`; `check_count_limit("max_partners")` trong `_create_partner`.
+- **Đếm lượt tạo trước, hoàn nếu lỗi** (2026-09-30): `reserve_monthly` kiểm tra + cộng 1 lượt trong một bước (khoá `_RESERVE_LOCK`), `release_monthly` trả lại khi tạo book/path thất bại. Trước đây chỉ kiểm tra rồi đếm sau khi tạo xong nên nhiều request song song đều qua cổng (1 lượt dùng thử Free thành nhiều). `POST /topics/draft` vẫn chỉ `check_monthly` (không tốn lượt). Giá trị hạn mức hỏng (`"abc"`, `true`) trong `subscription_plans.entitlements` giữ mặc định thay vì thành "không giới hạn"; lỗi DB khi tra gói ⇒ dùng quyền Free nhưng **không cache** 10 giây.
+- **Huy hiệu thông báo Community mở cho mọi gói** (2026-09-30): `community_guard` thay `feature_dependency("community")` cho router Community; riêng `GET /api/community/notifications/unread-count` không bị chặn vì thanh bên poll mỗi 60 giây cho mọi người dùng (trước đây Free nhận 402 liên tục). Test `test_real_app_puts_the_right_guard_on_each_paid_surface` kiểm tra guard thật sự gắn vào app.
+- Cache gói theo user 10 giây (`entitlements.invalidate()` khi đổi gói/sửa gói). `GET /api/billing/entitlements`
+  trả gói, quyền, hạn mức, mức dùng và `upgrade_to`.
+- Frontend: `EntitlementsProvider` (3 layout) + `PlanGate` (map route ở `lib/plan-routes.ts`, gồm
+  `/partners/new` khi hết lượt). Mục bị khoá vẫn hiện có ổ khoá và dẫn tới `/pricing` (sidebar Community,
+  thẻ Learning hub, ô Learning Space, hộp Save to Notebook / Question Bank / Reading picker / chia sẻ skill);
+  `UsageMeter` hiện x/giới hạn (Skills, Partners, lượt Mastery/Book tháng) và nút "Upgrade to …"
+  (Plus → Pro, Pro → Unlimited Campus).
+
 ---
 
 ## 3. API đã có
@@ -352,6 +395,8 @@ Bộ test không nằm trong repo: ở `C:\PathMind_removed\tests\tests` (đã �
 `services/test_plan_default_model.py`). Script chạy toàn bộ `fulltest.bat` đã chuyển sang
 `C:\PathMind_removed\cleanup_20260925\` — nó chép test vào `tests/`, đặt `DATABASE_URL` sang SQLite tạm
 (để **không ghi vào DB thật**), chạy pytest (log `logs/pytest_full2.log`) rồi chuyển test về chỗ cũ.
+
+Test gói cước: `tests/services/test_entitlements.py` (quyền, dùng thử Free, reserve/release, gợi ý nâng gói, skill/partner, guard). Các test API cũ chạy với người dùng "gói mở hết" nhờ plugin pytest `C:\PathMind_removed\tests\tests\plan_unlimited.py` (`PYTHONPATH=tests python -m pytest -p plan_unlimited …`; bỏ qua file test_entitlements).
 
 Kết quả lần chạy 2026-09-25: **6004 pass / 113 fail / 66 skip**. Các lỗi còn lại đều do môi
 trường, không phải do code: sandbox/bwrap/symlink/quyền "owner-only" chỉ chạy trên Linux/macOS;

@@ -2,6 +2,8 @@ import WorkspaceSidebar from "@/components/sidebar/WorkspaceSidebar";
 import AppShell from "@/components/layout/AppShell";
 import { CapabilityAccessProvider } from "@/components/access/CapabilityAccessContext";
 import CapabilityGate from "@/components/access/CapabilityGate";
+import { EntitlementsProvider } from "@/components/access/EntitlementsContext";
+import PlanGate from "@/components/access/PlanGate";
 import { ChatRuntimeProvider } from "@/features/chat";
 import { ReadingProvider } from "@/context/ReadingContext";
 import { WatchingProvider } from "@/context/WatchingContext";
@@ -15,6 +17,7 @@ export default function WorkspaceLayout({
 }>) {
   return (
     <CapabilityAccessProvider>
+    <EntitlementsProvider>
       <Suspense>
       <WorkspaceRuntimeBoundary>
       <ChatRuntimeProvider>
@@ -24,13 +27,16 @@ export default function WorkspaceLayout({
         <ReadingProvider>
           <WatchingProvider>
             <AppShell sidebar={<WorkspaceSidebar />}>
-              <CapabilityGate>{children}</CapabilityGate>
+              <CapabilityGate>
+          <PlanGate>{children}</PlanGate>
+        </CapabilityGate>
             </AppShell>
           </WatchingProvider>
         </ReadingProvider>
       </ChatRuntimeProvider>
       </WorkspaceRuntimeBoundary>
       </Suspense>
+    </EntitlementsProvider>
     </CapabilityAccessProvider>
   );
 }

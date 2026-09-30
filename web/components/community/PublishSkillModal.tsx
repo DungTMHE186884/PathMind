@@ -1,5 +1,7 @@
 "use client";
 
+import { useEntitlements } from "@/components/access/EntitlementsContext";
+import { PlanLockedDialog } from "@/components/access/PlanGate";
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useTranslation } from "react-i18next";
@@ -58,18 +60,26 @@ Describe the situations where this playbook applies.
 **Tutor:** …
 `;
 
-export default function PublishSkillModal({
-  onClose,
-  onDone,
-  initial,
-  existing,
-}: {
+interface PublishSkillModalProps {
   onClose: () => void;
   onDone: (skill: CommunitySkillDetail) => void;
   initial?: PublishInitial;
   /** Update mode: the listing being edited. */
   existing?: CommunitySkillDetail;
-}) {
+}
+
+/** Sharing needs the Community (paid plans); Free sees an upgrade note. */
+export default function PublishSkillModal(props: PublishSkillModalProps) {
+  const { has } = useEntitlements();
+  if (!has("community")) {
+    return (
+      <PlanLockedDialog open onClose={props.onClose} title="Community" target="community" />
+    );
+  }
+  return <PublishSkillDialog {...props} />;
+}
+
+function PublishSkillDialog({ onClose, onDone, initial, existing }: PublishSkillModalProps) {
   const { t } = useTranslation();
   const router = useRouter();
   const labels = useCommunityLabels();

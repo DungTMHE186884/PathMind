@@ -789,6 +789,10 @@ async def create_book(req: CreateBookRequest) -> dict[str, Any]:
         raise HTTPException(status_code=400, detail="user_intent is required")
     if not can_create_book():
         raise HTTPException(status_code=403, detail="Book creation is not allowed")
+    from pathmind.services import entitlements
+
+    # Reserved up front so parallel requests cannot all slip past the check.
+    entitlements.reserve_monthly("books_per_month")
     engine = get_book_engine()
     try:
         book, proposal = await engine.create_book(
@@ -805,6 +809,7 @@ async def create_book(req: CreateBookRequest) -> dict[str, Any]:
             depth=req.depth,
         )
     except Exception as exc:  # noqa: BLE001
+        entitlements.release_monthly("books_per_month")
         logger.error(f"create_book failed: {exc}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(exc))
     return {
@@ -1574,23 +1579,39 @@ async def book_websocket(ws: WebSocket) -> None:
                     if not can_create_book():
                         await send({"type": "error", "content": "Book creation is not allowed"})
                         continue
+                    from pathmind.services import entitlements
+
+                    try:
+                        entitlements.reserve_monthly("books_per_month")
+                    except HTTPException as exc:
+                        await send(
+                            {"type": "error", "content": exc.detail, "code": "plan_limit"}
+                        )
+                        continue
                     engine = get_book_engine()
-                    book, proposal = await engine.create_book(
-                        user_intent=str(data.get("user_intent") or ""),
-                        source_refs=data.get("source_refs") or [],
-                        chat_session_id=str(data.get("chat_session_id") or ""),
-                        chat_selections=data.get("chat_selections") or [],
-                        notebook_refs=data.get("notebook_refs") or [],
-                        knowledge_bases=data.get("knowledge_bases") or [],
-                        question_categories=[
-                            int(c) for c in (data.get("question_categories") or [])
-                        ],
-                        question_entries=[int(e) for e in (data.get("question_entries") or [])],
-                        language=str(data.get("language") or "en"),
-                        fallback_language=str(data.get("fallback_language") or "en"),
-                        depth=str(data.get("depth") or "standard"),
-                        stream=creation_bus,
-                    )
+                    try:
+                        book, proposal = await engine.create_book(
+                            user_intent=str(data.get("user_intent") or ""),
+                            source_refs=data.get("source_refs") or [],
+                            chat_session_id=str(data.get("chat_session_id") or ""),
+                            chat_selections=data.get("chat_selections") or [],
+                            notebook_refs=data.get("notebook_refs") or [],
+                            knowledge_bases=data.get("knowledge_bases") or [],
+                            question_categories=[
+                                int(c) for c in (data.get("question_categories") or [])
+                            ],
+                            question_entries=[
+                                int(e) for e in (data.get("question_entries") or [])
+                            ],
+                            language=str(data.get("language") or "en"),
+                            fallback_language=str(data.get("fallback_language") or "en"),
+                            depth=str(data.get("depth") or "standard"),
+                            stream=creation_bus,
+                        )
+                    except BaseException:
+                        # A failed (or cancelled) creation must not burn the allowance.
+                        entitlements.release_monthly("books_per_month")
+                        raise
                     # From here on this book has a stream of its own.
                     created_bus = get_book_bus(book.id)
                     fanout.attach(created_bus, after_seq=created_bus.latest_seq)

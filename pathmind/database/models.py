@@ -72,6 +72,9 @@ class SubscriptionPlan(Base):
     features = Column(JSON, nullable=True)
     sort_order = Column(Integer, nullable=True, default=0)
     created_at = Column(DateTime, nullable=True, default=datetime.utcnow)
+    # Feature access + resource limits (services/entitlements.py). NULL = the
+    # shipped defaults for this plan id; inside, a null limit means unlimited.
+    entitlements = Column(JSON, nullable=True)
 
     subscriptions = relationship("Subscription", back_populates="plan")
 
@@ -395,3 +398,17 @@ class CommunityNotification(Base):
     preview = Column(String(300), nullable=False, default="")
     read_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, index=True)
+
+
+class FeatureUsage(Base):
+    """Monthly counters for plan-limited creations (e.g. mastery paths, books)."""
+
+    __tablename__ = "feature_usage"
+    __table_args__ = (UniqueConstraint("user_id", "feature", "period", name="uq_feature_usage"),)
+
+    id = Column(String(36), primary_key=True, default=_gen_uuid)
+    user_id = Column(String(36), nullable=False, index=True)
+    feature = Column(String(40), nullable=False)
+    period = Column(String(7), nullable=False)  # "YYYY-MM" (UTC)
+    count = Column(Integer, nullable=False, default=0)
+    updated_at = Column(DateTime, default=datetime.utcnow)

@@ -31,8 +31,28 @@ import {
   listModelPrices,
   type ModelPriceList,
 } from "@/lib/admin-api";
+import {
+  PLAN_FEATURES,
+  PLAN_LIMITS,
+  type AllowancePeriod,
+  type PlanFeature,
+  type PlanLimit,
+} from "@/lib/entitlements-api";
 
 const MB = 1024 * 1024;
+
+const FEATURE_LABELS: Record<PlanFeature, string> = {
+  community: "Community",
+  space_extras: "Notebooks, Question Bank & Skills",
+  reading: "Immersive Reading",
+  watching: "Immersive Watching",
+};
+const LIMIT_LABELS: Record<PlanLimit, string> = {
+  max_skills: "Max own skills",
+  max_partners: "Max partners",
+  mastery_per_month: "New mastery paths",
+  books_per_month: "New books",
+};
 
 interface Draft {
   name: string;
@@ -49,6 +69,10 @@ interface Draft {
   allow_custom_api_key: boolean;
   is_active: boolean;
   features_text: string;
+  ent_features: Record<PlanFeature, boolean>;
+  /** "" = unlimited. */
+  ent_limits: Record<PlanLimit, string>;
+  ent_period: AllowancePeriod;
 }
 
 function toDraft(p: AdminSubscriptionPlan): Draft {
@@ -67,6 +91,16 @@ function toDraft(p: AdminSubscriptionPlan): Draft {
     allow_custom_api_key: !!p.allow_custom_api_key,
     is_active: p.is_active !== false,
     features_text: (p.custom_features ?? []).join("\n"),
+    ent_features: Object.fromEntries(
+      PLAN_FEATURES.map((k) => [k, !!p.entitlements?.[k]]),
+    ) as Record<PlanFeature, boolean>,
+    ent_limits: Object.fromEntries(
+      PLAN_LIMITS.map((k) => {
+        const v = p.entitlements?.[k];
+        return [k, v === null || v === undefined ? "" : String(v)];
+      }),
+    ) as Record<PlanLimit, string>,
+    ent_period: p.entitlements?.allowance_period === "lifetime" ? "lifetime" : "month",
   };
 }
 
@@ -89,6 +123,16 @@ function toPatch(d: Draft): PlanPatch {
       .split("\n")
       .map((s) => s.trim())
       .filter(Boolean),
+    entitlements: {
+      ...d.ent_features,
+      ...(Object.fromEntries(
+        PLAN_LIMITS.map((k) => {
+          const raw = d.ent_limits[k].trim();
+          return [k, raw === "" ? null : Math.max(0, Math.floor(Number(raw) || 0))];
+        }),
+      ) as Record<PlanLimit, number | null>),
+      allowance_period: d.ent_period,
+    },
   };
 }
 
@@ -505,6 +549,74 @@ export default function AdminPlansPage() {
                           }
                         />
                         {t("Allow own API key")}
+                      </label>
+                    </div>
+                  </div>
+
+                  {/* Entitlements */}
+                  <div className="border-b border-[var(--border)] py-5">
+                    <h3 className="mb-1 text-xs font-semibold uppercase tracking-wider">
+                      {t("What this plan unlocks")}
+                    </h3>
+                    <p className="mb-3 text-[11px] text-[var(--muted-foreground)]">
+                      {t(
+                        "Practice, chat history and the Knowledge Center are open on every plan. Leave a limit empty for unlimited; 0 means not included. Lowering a limit never deletes anything.",
+                      )}
+                    </p>
+                    <div className="mb-3 flex flex-wrap gap-x-5 gap-y-2 text-[13px]">
+                      {PLAN_FEATURES.map((k) => (
+                        <label key={k} className="flex items-center gap-2">
+                          <input
+                            type="checkbox"
+                            className="accent-[var(--primary)]"
+                            checked={d.ent_features[k]}
+                            onChange={(e) =>
+                              patchDraft(p.id, {
+                                ent_features: { ...d.ent_features, [k]: e.target.checked },
+                              })
+                            }
+                          />
+                          {t(FEATURE_LABELS[k])}
+                        </label>
+                      ))}
+                    </div>
+                    <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+                      {PLAN_LIMITS.map((k) => (
+                        <label key={k} className="block">
+                          <span className="mb-1 block text-[11px] font-medium text-[var(--muted-foreground)]">
+                            {t(LIMIT_LABELS[k])}
+                          </span>
+                          <input
+                            type="number"
+                            min={0}
+                            step={1}
+                            value={d.ent_limits[k]}
+                            placeholder={t("Unlimited")}
+                            onChange={(e) =>
+                              patchDraft(p.id, {
+                                ent_limits: { ...d.ent_limits, [k]: e.target.value },
+                              })
+                            }
+                            className={inputCls}
+                          />
+                        </label>
+                      ))}
+                      <label className="block">
+                        <span className="mb-1 block text-[11px] font-medium text-[var(--muted-foreground)]">
+                          {t("Path & book allowance")}
+                        </span>
+                        <select
+                          value={d.ent_period}
+                          onChange={(e) =>
+                            patchDraft(p.id, {
+                              ent_period: e.target.value as AllowancePeriod,
+                            })
+                          }
+                          className={inputCls}
+                        >
+                          <option value="month">{t("Resets every month")}</option>
+                          <option value="lifetime">{t("One-time trial")}</option>
+                        </select>
                       </label>
                     </div>
                   </div>

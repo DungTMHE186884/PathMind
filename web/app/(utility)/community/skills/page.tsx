@@ -24,6 +24,8 @@ import {
 } from "@/lib/community-api";
 import { confirmAction } from "@/lib/confirm";
 import { notify } from "@/lib/notifications";
+import { useEntitlements } from "@/components/access/EntitlementsContext";
+import { UsageMeter, useLimitReachedText } from "@/components/access/PlanGate";
 
 type Sort = "popular" | "new" | "likes";
 
@@ -42,6 +44,8 @@ export default function SkillHubPage() {
   const [page, setPage] = useState(1);
   const [publishing, setPublishing] = useState(false);
   const [installing, setInstalling] = useState("");
+  const ent = useEntitlements();
+  const limitText = useLimitReachedText();
 
   const requestKey = JSON.stringify([search, category, sort, mine, page]);
   const loading = loadedKey !== requestKey;
@@ -71,6 +75,10 @@ export default function SkillHubPage() {
     );
 
   async function install(skill: CommunitySkill) {
+    if (ent.atLimit("max_skills")) {
+      notify(limitText("max_skills"), { tone: "error" });
+      return;
+    }
     setInstalling(skill.slug);
     try {
       let res;
@@ -133,6 +141,7 @@ export default function SkillHubPage() {
             "Skills are playbooks the AI reads when they fit your question. Add one with a click — no CLI, no download — or share your own from a file, your Skills or Co-Writer.",
           )}
         </p>
+        <UsageMeter target="max_skills" label="Your own skills" className="mt-2" />
         <form
           className="mt-4 flex max-w-xl gap-2"
           onSubmit={(e) => {

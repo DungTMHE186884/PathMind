@@ -3,6 +3,7 @@
 import { useLibraryFilter, WorkspaceLabel } from '@/components/learning/LibraryWorkspace'
 import { libraryItemKey } from '@/lib/learning-library'
 import { LearningCardContent } from '@/components/learning/LearningCard'
+import { UsageMeter } from '@/components/access/PlanGate'
 
 import {
   LearningShell,
@@ -140,6 +141,7 @@ export default function BookLibrary({
         aria-label={t('Search books')}
       >
         {control}
+        <UsageMeter target="books_per_month" label="Books created" monthly />
         <div className="relative min-w-48 flex-1 sm:max-w-sm">
           <Search
             size={14}

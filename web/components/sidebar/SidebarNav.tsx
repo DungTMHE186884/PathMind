@@ -27,6 +27,8 @@ import { Lock, MoreHorizontal, RotateCcw } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { useCapabilityAccess } from "@/components/access/CapabilityAccessContext";
+import { useEntitlements } from "@/components/access/EntitlementsContext";
+import { isPlanLocked, usePlanLockedText } from "@/components/access/PlanGate";
 import {
   NAV_BY_HREF,
   PRIMARY_NAV_HREFS,
@@ -36,6 +38,8 @@ import { Tooltip } from "@/components/ui/Tooltip";
 import { useAuthStatus } from "@/hooks/useAuthStatus";
 import { useCommunityUnread } from "@/hooks/useCommunityUnread";
 import { useDragSort, type DragSort } from "@/hooks/useDragSort";
+import { PRICING_HREF } from "@/lib/entitlements-api";
+import { requirementKey } from "@/lib/plan-routes";
 import { placeMenu, type FloatingMenuPosition } from "@/lib/floating-menu";
 import {
   readNavLayout,
@@ -53,7 +57,20 @@ const COMMUNITY_HREF = "/community";
 /** Unread Community notifications, once the account is known. */
 function useSignedInCommunityUnread(): number {
   const { enabled, authenticated, loading } = useAuthStatus();
-  return useCommunityUnread(!loading && (!enabled || authenticated));
+  const ent = useEntitlements();
+  // Free plans have no Community, so don't poll a route that answers 402.
+  const entitled = !!ent.data && ent.has("community");
+  return useCommunityUnread(entitled && !loading && (!enabled || authenticated));
+}
+
+/** Tooltip text when the plan (not the model grant) locks this entry. */
+function usePlanLock(): (href: string) => string | null {
+  const ent = useEntitlements();
+  const text = usePlanLockedText();
+  return (href: string) => {
+    const req = NAV_BY_HREF.get(href)?.plan;
+    return req && isPlanLocked(ent, req) ? text(requirementKey(req)) : null;
+  };
 }
 
 interface RowMenu {
@@ -81,6 +98,7 @@ export function SidebarNav({
   const { t } = useTranslation();
   const { has } = useCapabilityAccess();
   const communityUnread = useSignedInCommunityUnread();
+  const planLock = usePlanLock();
 
   const [layout, setLayout] = useState<SidebarNavLayout | null>(null);
   const [menu, setMenu] = useState<RowMenu | null>(null);
@@ -182,6 +200,7 @@ export function SidebarNav({
             active={isNavActive(pathname, href)}
             locked={isLocked(href)}
             lockedTooltip={lockedTooltip}
+            planLocked={planLock(href)}
             onHomeClick={onHomeClick}
           />
         ))}
@@ -212,6 +231,7 @@ export function SidebarNav({
     if (!entry) return null;
     const active = isNavActive(pathname, href);
     const locked = isLocked(href);
+    const planLocked = locked ? null : planLock(href);
     const dragging = drag.draggingId === href;
     const menuOpen = menu?.href === href;
     const Icon = entry.icon;
@@ -229,7 +249,7 @@ export function SidebarNav({
             {communityUnread > 99 ? "99+" : communityUnread}
           </span>
         ) : null}
-        {locked ? (
+        {locked || planLocked ? (
           <Lock size={13} strokeWidth={1.8} className="shrink-0" />
         ) : null}
       </Fragment>
@@ -262,6 +282,23 @@ export function SidebarNav({
             >
               {body}
             </div>
+          </Tooltip>
+        ) : planLocked ? (
+          <Tooltip
+            key={`${href}-destination`}
+            label={label}
+            description={planLocked}
+            side="right"
+          >
+            <Link
+              href={PRICING_HREF}
+              draggable={false}
+              onClick={onNavigate}
+              aria-label={`${label} — ${planLocked}`}
+              className={`${rowClass} text-muted-foreground/60 hover:bg-background/60 hover:text-[var(--foreground)]`}
+            >
+              {body}
+            </Link>
           </Tooltip>
         ) : (
           <Link
@@ -406,12 +443,15 @@ function RailRow({
   active,
   locked,
   lockedTooltip,
+  planLocked = null,
   onHomeClick,
 }: {
   href: string;
   active: boolean;
   locked: boolean;
   lockedTooltip: string;
+  /** Upgrade tooltip when the plan locks it (the row then opens pricing). */
+  planLocked?: string | null;
   onHomeClick: (event: React.MouseEvent) => void;
 }) {
   const { t } = useTranslation();
@@ -441,6 +481,25 @@ function RailRow({
             className="absolute bottom-1 right-1 text-muted-foreground/70"
           />
         </div>
+      </Tooltip>
+    );
+  }
+
+  if (planLocked) {
+    return (
+      <Tooltip label={label} description={planLocked} side="right">
+        <Link
+          href={PRICING_HREF}
+          aria-label={`${label} — ${planLocked}`}
+          className="relative flex h-9 w-9 items-center justify-center rounded-xl text-muted-foreground/50 transition-colors hover:bg-background/60 hover:text-[var(--foreground)]"
+        >
+          <Icon size={18} strokeWidth={1.6} />
+          <Lock
+            size={10}
+            strokeWidth={2}
+            className="absolute bottom-1 right-1 text-muted-foreground/70"
+          />
+        </Link>
       </Tooltip>
     );
   }

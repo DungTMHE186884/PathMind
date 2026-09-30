@@ -423,7 +423,13 @@ export default function PricingPage() {
           )}
 
           {/* Plan cards */}
-          <div className="mx-auto mb-14 grid max-w-6xl grid-cols-1 gap-6 md:grid-cols-3">
+          <div
+            className={`mx-auto mb-14 grid grid-cols-1 gap-6 ${
+              plans.length >= 4
+                ? "max-w-7xl md:grid-cols-2 xl:grid-cols-4"
+                : "max-w-6xl md:grid-cols-3"
+            }`}
+          >
             {plans.map((p) => {
               const highlight = p.id === "pro";
               const isCurrent = currentPlanId === p.id && !quota?.is_unlimited;

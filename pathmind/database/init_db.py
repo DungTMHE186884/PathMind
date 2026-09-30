@@ -28,6 +28,11 @@ FREE_MODELS = [
     "deepseek-v4-flash",
     "gpt-6-luna",
 ]
+PLUS_MODELS = FREE_MODELS + [
+    "gemini-3.7-flash",
+    "gemini-3.8-flash",
+    "deepseek-v4-pro",
+]
 PRO_MODELS = FREE_MODELS + [
     "gemini-3.7-flash",
     "gemini-3.8-flash",
@@ -63,6 +68,21 @@ DEFAULT_PLANS: list[dict] = [
         # Cheapest capable model: ×1.9 credits vs ×5.4 for gemini-3.6-flash,
         # so free users get ~3x more chats / quizzes from the same quota.
         "default_model": "deepseek-v4-flash",
+        "allow_custom_api_key": False,
+        "is_active": True,
+    },
+    {
+        "id": "plus",
+        "name": "Plus",
+        "description": "For regular learners who want learning paths, AI books and the community.",
+        "sort_order": 5,
+        "price_monthly": 4.99,
+        "price_yearly": 49.0,
+        "max_tokens_per_day": 1_000_000,
+        "max_tokens_per_month": 11_000_000,  # ≈ $2.75 API cost at most (55% of price)
+        "max_storage_bytes": 2 * GB,
+        "max_upload_file_size_bytes": 25 * MB,
+        "allowed_models": PLUS_MODELS,
         "allow_custom_api_key": False,
         "is_active": True,
     },
@@ -137,13 +157,19 @@ DEFAULT_MODEL_PRICES: list[dict] = [
 
 def seed_initial_data() -> None:
     from pathmind.database.models import ModelPrice, SubscriptionPlan
+    from pathmind.services.entitlements import default_entitlements
 
     db = SessionLocal()
     try:
         for p_data in DEFAULT_PLANS:
             existing = db.get(SubscriptionPlan, p_data["id"])
             if not existing:
-                db.add(SubscriptionPlan(**p_data))
+                db.add(
+                    SubscriptionPlan(
+                        **p_data,
+                        entitlements=default_entitlements(p_data["id"], p_data["price_monthly"]),
+                    )
+                )
                 logger.info("Seeded subscription plan: %s", p_data["id"])
                 continue
             if (
@@ -154,6 +180,24 @@ def seed_initial_data() -> None:
                 existing.description = p_data["description"]
             if existing.sort_order is None:
                 existing.sort_order = p_data["sort_order"]
+            if existing.entitlements is None:
+                existing.entitlements = default_entitlements(existing.id, existing.price_monthly)
+                logger.info("Plan %s entitlements -> defaults", existing.id)
+            elif (
+                existing.id == "free"
+                and isinstance(existing.entitlements, dict)
+                and "allowance_period" not in existing.entitlements
+                and existing.entitlements.get("mastery_per_month") == 0
+                and existing.entitlements.get("books_per_month") == 0
+            ):
+                # First-release Free (no paths/books) -> one-time trial of each.
+                existing.entitlements = {
+                    **existing.entitlements,
+                    "mastery_per_month": 1,
+                    "books_per_month": 1,
+                    "allowance_period": "lifetime",
+                }
+                logger.info("Plan free entitlements -> 1 path + 1 book trial")
             # NULL = never set: adopt the shipped default once. An admin who
             # clears it stores "" and is left alone.
             if existing.default_model is None and p_data.get("default_model"):

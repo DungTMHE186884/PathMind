@@ -42,7 +42,7 @@ function MasteryPathRoute() {
   // Present when opened from a course page or a Course Study hand-off. It both
   // narrows the atlas to that course's paths and adopts whatever is built here.
   const scope = useCourseScope();
-  const creation = useLearningCreation(() => setWizardOpen(true));
+  const creation = useLearningCreation(() => setWizardOpen(true), "mastery_per_month");
 
   const loadTopics = useCallback(async () => {
     setError(null);

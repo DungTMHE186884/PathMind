@@ -197,6 +197,10 @@ async def list_notebooks():
     Returns:
         Notebook list (includes summary information)
     """
+    from pathmind.services.entitlements import has_feature
+
+    if not has_feature("space_extras"):
+        return {"notebooks": [], "total": 0, "locked": True}
     try:
         notebooks = notebook_manager.list_notebooks()
         return {"notebooks": notebooks, "total": len(notebooks)}

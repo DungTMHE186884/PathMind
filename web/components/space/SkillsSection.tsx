@@ -23,6 +23,8 @@ import {
 } from "lucide-react";
 import SpaceSectionHeader from "@/components/space/SpaceSectionHeader";
 import PublishSkillModal from "@/components/community/PublishSkillModal";
+import { useEntitlements } from "@/components/access/EntitlementsContext";
+import { UpgradeLink, UsageMeter, useLimitReachedText } from "@/components/access/PlanGate";
 import { isValidSkillName, slugifySkillName } from "@/lib/skill-slug";
 import {
   createSkill,
@@ -398,6 +400,9 @@ export default function SkillsSection() {
   const editorNameInvalid = Boolean(
     editor?.name && !isValidSkillName(editor.name),
   );
+  const ent = useEntitlements();
+  const skillsFull = ent.atLimit("max_skills");
+  const limitText = useLimitReachedText();
 
   return (
     <div className="space-y-6">
@@ -408,8 +413,11 @@ export default function SkillsSection() {
           "Capability playbooks the model reads on demand. Built-in and preset skills are read-only.",
         )}
         meta={
-          <span className="rounded-full border border-[var(--border)] bg-[var(--card)] px-2 py-0.5 text-[10.5px] font-medium text-[var(--muted-foreground)]">
-            {skills.length} {t("skills.count.suffix")}
+          <span className="inline-flex flex-wrap items-center gap-2">
+            <span className="rounded-full border border-[var(--border)] bg-[var(--card)] px-2 py-0.5 text-[10.5px] font-medium text-[var(--muted-foreground)]">
+              {skills.length} {t("skills.count.suffix")}
+            </span>
+            <UsageMeter target="max_skills" label="Your own skills" />
           </span>
         }
         action={
@@ -423,11 +431,14 @@ export default function SkillsSection() {
             </Link>
             <button
               onClick={openCreate}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--primary)] px-3.5 py-1.5 text-[12.5px] font-medium text-[var(--primary-foreground)] shadow-sm transition-opacity hover:opacity-90"
+              disabled={skillsFull}
+              title={skillsFull ? limitText("max_skills") : undefined}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--primary)] px-3.5 py-1.5 text-[12.5px] font-medium text-[var(--primary-foreground)] shadow-sm transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
             >
               <Plus size={13} strokeWidth={2} />
               {t("New skill")}
             </button>
+            {skillsFull ? <UpgradeLink target="max_skills" compact /> : null}
           </div>
         }
       />

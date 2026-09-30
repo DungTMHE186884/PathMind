@@ -1,5 +1,6 @@
 import { apiFetch, apiUrl as baseApiUrl } from "@/lib/api";
 import { invalidateClientCache, withClientCache } from "@/lib/client-cache";
+import { notifyEntitlementsChanged } from "@/lib/entitlements-api";
 import { asJsonOrThrow as asJson } from "@/lib/api";
 
 function skillWorkspace(): string {
@@ -349,4 +350,6 @@ export async function deleteSkillTag(name: string): Promise<void> {
 
 export function invalidateSkillsCache() {
   invalidateClientCache(SKILLS_CACHE_PREFIX);
+  // Own-skill count feeds the plan's skill allowance.
+  notifyEntitlementsChanged();
 }

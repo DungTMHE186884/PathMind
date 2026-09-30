@@ -1,6 +1,7 @@
 /** Typed client for the /api/partners backend. */
 
 import { apiFetch, apiUrl } from "@/lib/api";
+import { notifyEntitlementsChanged } from "@/lib/entitlements-api";
 import type { LLMSelection } from "@/features/chat/model/protocol";
 import type { ChatWorkspaceRegistration } from "@/lib/workspaces-api";
 
@@ -185,20 +186,24 @@ export async function getPartner(
 export async function createPartner(
   payload: CreatePartnerPayload,
 ): Promise<PartnerInfo> {
-  return json(
+  const created = await json<PartnerInfo>(
     await apiFetch(apiUrl("/api/partners"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     }),
   );
+  // Deferred: the new-partner route is gated on this count, and the wizard
+  // must be able to navigate away before the gate re-evaluates.
+  setTimeout(notifyEntitlementsChanged, 1500);
+  return created;
 }
 
 export async function confirmPartnerDraft(
   draftId: string,
   payload: ConfirmPartnerDraftPayload,
 ): Promise<PartnerInfo> {
-  return json(
+  const created = await json<PartnerInfo>(
     await apiFetch(
       apiUrl(`/api/partners/drafts/${encodeURIComponent(draftId)}/confirm`),
       {
@@ -208,6 +213,10 @@ export async function confirmPartnerDraft(
       },
     ),
   );
+  // Deferred: the new-partner route is gated on this count, and the wizard
+  // must be able to navigate away before the gate re-evaluates.
+  setTimeout(notifyEntitlementsChanged, 1500);
+  return created;
 }
 
 export async function updatePartner(
@@ -249,6 +258,7 @@ export async function destroyPartner(partnerId: string): Promise<void> {
       method: "DELETE",
     }),
   );
+  notifyEntitlementsChanged();
 }
 
 export async function getPartnerSoul(partnerId: string): Promise<string> {

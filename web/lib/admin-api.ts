@@ -1,3 +1,4 @@
+import type { PlanEntitlements } from "@/lib/entitlements-api";
 import { apiFetch, apiUrl } from "@/lib/api";
 import type {
   BillingInterval,
@@ -260,7 +261,7 @@ export type PlanPatch = Partial<
     | "allow_custom_api_key"
     | "is_active"
   >
-> & { features?: string[] };
+> & { features?: string[]; entitlements?: Partial<PlanEntitlements> };
 
 export function listAdminPlans(): Promise<AdminSubscriptionPlan[]> {
   return adminJson(

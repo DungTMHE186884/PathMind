@@ -304,7 +304,7 @@ class PartnerRunner:
         options = options or PartnerTurnOptions()
         session_key = msg.session_key
         store = self._store_for(msg)
-        async with self._lock_for(session_key, actor_id=personal_actor_id(msg.actor)):
+        async with self._lock_for(session_key, actor_id=personal_actor_id(msg.actor, self.partner_id)):
             if options.allow_commands:
                 command = PartnerCommandHandler(
                     partner_id=self.partner_id,

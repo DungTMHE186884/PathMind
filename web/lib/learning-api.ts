@@ -1,5 +1,6 @@
 import type { LearningOrigin } from "@/lib/learning-library";
 import { apiUrl, apiFetch } from "./api";
+import { notifyEntitlementsChanged } from "@/lib/entitlements-api";
 
 export interface ModuleInit {
   id: string;
@@ -675,7 +676,7 @@ export function generateMasteryTopicDraft(
 export function createMasteryTopic(
   input: CreateTopicInput,
 ): Promise<MasteryTopic> {
-  return masteryJson(
+  return masteryJson<MasteryTopic>(
     "/api/mastery-paths/topics",
     {
       method: "POST",
@@ -683,7 +684,7 @@ export function createMasteryTopic(
       body: JSON.stringify(input),
     },
     "create topic",
-  );
+  ).finally(notifyEntitlementsChanged); // counted when it starts, given back on failure
 }
 
 export function updateMasteryTopicMap(

@@ -543,9 +543,12 @@ async def install_community_skill(
         SkillImportError,
     )
 
+    from pathmind.services.entitlements import check_skill_limit
+
     me = get_current_user()
     body = body or InstallBody()
     row = _skill_or_404(db, slug)
+    check_skill_limit(((body.name or "").strip() or row.slug) if body.force else None)
     try:
         result = await asyncio.to_thread(
             svc.install_package,
