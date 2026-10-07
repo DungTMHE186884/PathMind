@@ -44,6 +44,8 @@ const MB = 1024 * 1024;
 const FEATURE_LABELS: Record<PlanFeature, string> = {
   community: "Community",
   space_extras: "Notebooks, Question Bank & Skills",
+  courses: "Courses",
+  memory: "Memory",
   reading: "Immersive Reading",
   watching: "Immersive Watching",
 };

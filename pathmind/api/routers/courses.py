@@ -68,6 +68,11 @@ class AttachCourseResourceRequest(BaseModel):
 
 @router.get("")
 async def list_courses() -> dict[str, object]:
+    from pathmind.services.entitlements import has_feature
+
+    if not has_feature("courses"):
+        # Chat and the sidebars load this for every plan; locked means "none".
+        return {"courses": [], "colors": list(COURSE_COLORS), "locked": True}
     return {
         "courses": [course.to_dict() for course in get_course_service().list_courses()],
         "colors": list(COURSE_COLORS),

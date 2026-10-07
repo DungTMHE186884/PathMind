@@ -2,13 +2,14 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ArrowLeft, Boxes, Receipt, Users } from "lucide-react";
+import { ArrowLeft, BarChart3, Boxes, Receipt, Users } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 const TABS = [
   { href: "/admin/plans", label: "Plans & Models", icon: Boxes },
   { href: "/admin/users", label: "Users", icon: Users },
   { href: "/admin/payments", label: "Payments", icon: Receipt },
+  { href: "/admin/insights", label: "Insights", icon: BarChart3 },
 ] as const;
 
 /** Shared header navigation for the /admin pages. */

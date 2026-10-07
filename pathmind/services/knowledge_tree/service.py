@@ -1,0 +1,486 @@
+"""Knowledge-tree rules: administrators curate it, everyone signed in reads it.
+
+The tutor reads the tree too (``knowledge_tree`` / ``knowledge_search`` tools).
+"""
+
+from __future__ import annotations
+
+from datetime import datetime
+import hashlib
+import re
+import unicodedata
+from typing import Any
+
+from sqlalchemy import func
+from sqlalchemy.orm import Session
+
+from pathmind.database.models import (
+    KnowledgeDomain,
+    KnowledgeNode,
+    KnowledgeSource,
+)
+
+from . import ingest
+
+EDIT_ROLES = frozenset({"admin"})
+MAX_TITLE = 200
+MAX_SUMMARY = 4000
+MAX_REASON = 1000
+
+
+class TreeError(Exception):
+    def __init__(self, status: int, message: str):
+        super().__init__(message)
+        self.status = status
+        self.message = message
+
+
+def can_edit(role: str) -> bool:
+    return role in EDIT_ROLES
+
+
+def _require_edit(role: str) -> None:
+    if not can_edit(role):
+        raise TreeError(403, "Only administrators can change the knowledge tree.")
+
+
+def _now() -> datetime:
+    return datetime.utcnow()
+
+
+def _clean(value: Any, limit: int, *, required: bool = False, field: str = "text") -> str:
+    text = str(value or "").strip()
+    if required and not text:
+        raise TreeError(400, f"{field} is required.")
+    return text[:limit]
+
+
+def slugify(name: str) -> str:
+    text = unicodedata.normalize("NFKD", name).encode("ascii", "ignore").decode()
+    text = re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
+    return text[:48] or "domain"
+
+
+# ── reading ───────────────────────────────────────────────────────────────
+
+
+def domain_summaries(db: Session) -> list[dict]:
+    counts = dict(
+        db.query(KnowledgeNode.domain_id, func.count(KnowledgeNode.id))
+        .group_by(KnowledgeNode.domain_id)
+        .all()
+    )
+    return [
+        {
+            "id": d.id,
+            "slug": d.slug,
+            "name": d.name,
+            "description": d.description,
+            "kb_name": d.kb_name,
+            "nodes": int(counts.get(d.id, 0)),
+        }
+        for d in db.query(KnowledgeDomain).order_by(KnowledgeDomain.name).all()
+    ]
+
+
+def _node_dict(n: KnowledgeNode) -> dict:
+    return {
+        "id": n.id,
+        "parent_id": n.parent_id,
+        "title": n.title,
+        "summary": n.summary,
+        "version": n.version,
+        "refs": n.refs or [],
+    }
+
+
+def tree_of(db: Session, domain_id: str) -> dict:
+    domain = db.get(KnowledgeDomain, domain_id)
+    if domain is None:
+        raise TreeError(404, "Domain not found.")
+    rows = (
+        db.query(KnowledgeNode)
+        .filter(KnowledgeNode.domain_id == domain_id)
+        .order_by(KnowledgeNode.position, KnowledgeNode.title)
+        .all()
+    )
+    by_parent: dict[str | None, list[dict]] = {}
+    for n in rows:
+        by_parent.setdefault(n.parent_id, []).append({**_node_dict(n), "children": []})
+    ids = {n.id for n in rows}
+
+    def attach(items: list[dict]) -> list[dict]:
+        for item in items:
+            item["children"] = attach(by_parent.get(item["id"], []))
+        return items
+
+    roots = by_parent.get(None, [])
+    # Orphans (parent deleted out from under them) surface as topics, not lost.
+    for pid, items in by_parent.items():
+        if pid is not None and pid not in ids:
+            roots.extend(items)
+    sources = [
+        {"id": s.id, "filename": s.filename, "size": s.size}
+        for s in db.query(KnowledgeSource).filter(KnowledgeSource.domain_id == domain_id)
+    ]
+    return {
+        "domain": {
+            "id": domain.id, "slug": domain.slug, "name": domain.name,
+            "description": domain.description, "kb_name": domain.kb_name,
+        },
+        "nodes": attach(roots),
+        "sources": sources,
+    }
+
+
+def node_detail(db: Session, node_id: str, excerpt_chars: int = 3000) -> dict:
+    node = db.get(KnowledgeNode, node_id)
+    if node is None:
+        raise TreeError(404, "Node not found.")
+    excerpts: list[dict] = []
+    for ref in node.refs or []:
+        src = db.get(KnowledgeSource, str(ref.get("source_id") or ""))
+        if src is None:
+            continue
+        start, end = int(ref.get("start") or 0), int(ref.get("end") or 0)
+        excerpts.append(
+            {
+                "source_id": src.id,
+                "filename": src.filename,
+                "text": src.text[start:end][:excerpt_chars],
+            }
+        )
+    return {**_node_dict(node), "domain_id": node.domain_id, "excerpts": excerpts}
+
+
+def has_content(db: Session) -> bool:
+    return db.query(KnowledgeNode.id).first() is not None
+
+
+def outline_text(db: Session, domain_id: str, limit: int = 200) -> str:
+    data = tree_of(db, domain_id)
+    lines = [f"{data['domain']['name']} ({data['domain']['slug']})"]
+
+    def walk(items: list[dict], depth: int) -> None:
+        for item in items:
+            if len(lines) >= limit:
+                return
+            lines.append(f"{'  ' * depth}- {item['title']} [{item['id']}]")
+            walk(item["children"], depth + 1)
+
+    walk(data["nodes"], 0)
+    return "\n".join(lines)
+
+
+def search_nodes(db: Session, query: str, limit: int = 10) -> list[dict]:
+    q = f"%{query.strip()[:80]}%"
+    if q == "%%":
+        return []
+    rows = (
+        db.query(KnowledgeNode, KnowledgeDomain.name)
+        .join(KnowledgeDomain, KnowledgeDomain.id == KnowledgeNode.domain_id)
+        .filter((KnowledgeNode.title.ilike(q)) | (KnowledgeNode.summary.ilike(q)))
+        .limit(limit)
+        .all()
+    )
+    return [{**_node_dict(n), "domain": name} for n, name in rows]
+
+
+# ── scope finding (the tree half of unified retrieval) ──────────────────
+
+
+def _terms(query: str) -> list[str]:
+    """Lower-case words, plus character bigrams for CJK runs (no spaces there)."""
+    q = (query or "").lower()[:300]
+    out: list[str] = []
+    for word in re.findall(r"\w+", q):
+        if re.search(r"[\u3400-\u9fff]", word):
+            out.extend(word[i : i + 2] for i in range(max(len(word) - 1, 1)))
+        elif len(word) >= 2:
+            out.append(word)
+    return list(dict.fromkeys(out))[:24]
+
+
+def find_scope(db: Session, query: str, domain_id: str | None = None, limit: int = 5) -> list[dict]:
+    """Rank nodes against ``query``; each hit carries its ancestor ``path`` and domain.
+
+    Deterministic keyword scoring (title ×3, summary ×1, ancestor title ×1) so the
+    scope step costs nothing and is easy to reason about; the GraphRAG step does
+    the semantic work inside whatever scope this finds.
+    """
+    terms = _terms(query)
+    if not terms:
+        return []
+    q = db.query(KnowledgeNode)
+    if domain_id:
+        q = q.filter(KnowledgeNode.domain_id == domain_id)
+    rows = q.limit(20000).all()
+    by_id = {n.id: n for n in rows}
+    names = {d.id: d.name for d in db.query(KnowledgeDomain).all()}
+
+    def path_of(n: KnowledgeNode) -> list[str]:
+        out: list[str] = []
+        seen: set[str] = set()
+        cur = by_id.get(n.parent_id) if n.parent_id else None
+        while cur is not None and cur.id not in seen:
+            seen.add(cur.id)
+            out.append(cur.title)
+            cur = by_id.get(cur.parent_id) if cur.parent_id else None
+        return list(reversed(out))
+
+    scored: list[tuple[int, KnowledgeNode, list[str]]] = []
+    for n in rows:
+        title, summary = n.title.lower(), (n.summary or "").lower()
+        path = path_of(n)
+        trail = " ".join(path).lower()
+        score = sum(3 for t in terms if t in title) + sum(1 for t in terms if t in summary)
+        score += sum(1 for t in terms if t in trail)
+        if score:
+            scored.append((score, n, path))
+    scored.sort(key=lambda x: (-x[0], x[1].title))
+    return [
+        {**_node_dict(n), "domain_id": n.domain_id, "domain": names.get(n.domain_id, ""), "path": path, "score": sc}
+        for sc, n, path in scored[:limit]
+    ]
+
+
+# ── direct edits (administrators) ────────────────────────────────────────────
+
+
+def create_domain(db: Session, role: str, user_id: str, name: str, description: str = "") -> KnowledgeDomain:
+    _require_edit(role)
+    return _create_domain(db, user_id, name, description)
+
+
+def _create_domain(db: Session, user_id: str, name: str, description: str) -> KnowledgeDomain:
+    name = _clean(name, 120, required=True, field="Name")
+    base = slugify(name)
+    slug, n = base, 2
+    while db.query(KnowledgeDomain.id).filter(KnowledgeDomain.slug == slug).first():
+        slug, n = f"{base}-{n}", n + 1
+    domain = KnowledgeDomain(
+        slug=slug,
+        name=name,
+        description=_clean(description, MAX_SUMMARY),
+        created_by=user_id,
+    )
+    db.add(domain)
+    db.commit()
+    return domain
+
+
+def delete_domain(db: Session, role: str, domain_id: str) -> None:
+    _require_edit(role)
+    domain = db.get(KnowledgeDomain, domain_id)
+    if domain is None:
+        raise TreeError(404, "Domain not found.")
+    db.query(KnowledgeNode).filter(KnowledgeNode.domain_id == domain_id).delete(synchronize_session=False)
+    db.query(KnowledgeSource).filter(KnowledgeSource.domain_id == domain_id).delete(synchronize_session=False)
+    db.delete(domain)
+    db.commit()
+
+
+def update_domain(
+    db: Session, role: str, domain_id: str, *, name: str | None = None, description: str | None = None,
+    kb_name: str | None = None, set_kb: bool = False,
+) -> KnowledgeDomain:
+    """Rename / describe a domain and (admin only) link its GraphRAG knowledge base."""
+    _require_edit(role)
+    domain = db.get(KnowledgeDomain, domain_id)
+    if domain is None:
+        raise TreeError(404, "Domain not found.")
+    if name is not None:
+        domain.name = _clean(name, 120, required=True, field="Name")
+    if description is not None:
+        domain.description = _clean(description, MAX_SUMMARY)
+    if set_kb:
+        link = _clean(kb_name, 200)
+        if link and link not in admin_kb_names():
+            raise TreeError(400, "That knowledge base does not exist in the admin library.")
+        domain.kb_name = link or None
+    domain.updated_at = _now()
+    db.commit()
+    return domain
+
+
+def admin_kb_names() -> list[str]:
+    """Names of the administrator's knowledge bases (the only ones a domain may link)."""
+    try:
+        from pathmind.multi_user.knowledge_access import admin_kb_manager
+
+        return sorted(admin_kb_manager().list_knowledge_bases())
+    except Exception:  # noqa: BLE001
+        return []
+
+
+def _next_position(db: Session, domain_id: str, parent_id: str | None) -> int:
+    q = db.query(func.max(KnowledgeNode.position)).filter(KnowledgeNode.domain_id == domain_id)
+    q = q.filter(KnowledgeNode.parent_id.is_(None) if parent_id is None else KnowledgeNode.parent_id == parent_id)
+    return int(q.scalar() if q.scalar() is not None else -1) + 1
+
+
+def _parent_ok(db: Session, domain_id: str, parent_id: str | None) -> None:
+    if parent_id is None:
+        return
+    parent = db.get(KnowledgeNode, parent_id)
+    if parent is None or parent.domain_id != domain_id:
+        raise TreeError(400, "Parent node not found in this domain.")
+
+
+def create_node(
+    db: Session, role: str, user_id: str, domain_id: str, parent_id: str | None, title: str, summary: str = ""
+) -> KnowledgeNode:
+    _require_edit(role)
+    return _create_node(db, user_id, domain_id, parent_id, title, summary)
+
+
+def _create_node(
+    db: Session, user_id: str, domain_id: str, parent_id: str | None, title: str, summary: str
+) -> KnowledgeNode:
+    if db.get(KnowledgeDomain, domain_id) is None:
+        raise TreeError(404, "Domain not found.")
+    _parent_ok(db, domain_id, parent_id)
+    node = KnowledgeNode(
+        domain_id=domain_id,
+        parent_id=parent_id,
+        title=_clean(title, MAX_TITLE, required=True, field="Title"),
+        summary=_clean(summary, MAX_SUMMARY),
+        position=_next_position(db, domain_id, parent_id),
+        refs=[],
+        updated_by=user_id,
+    )
+    db.add(node)
+    db.commit()
+    return node
+
+
+def update_node(
+    db: Session, role: str, user_id: str, node_id: str, *, title: str | None = None, summary: str | None = None,
+    base_version: int | None = None,
+) -> KnowledgeNode:
+    _require_edit(role)
+    return _update_node(db, user_id, node_id, title, summary, base_version)
+
+
+def _update_node(
+    db: Session, user_id: str, node_id: str, title: str | None, summary: str | None, base_version: int | None
+) -> KnowledgeNode:
+    node = db.get(KnowledgeNode, node_id)
+    if node is None:
+        raise TreeError(404, "Node not found.")
+    if base_version is not None and node.version != base_version:
+        raise TreeError(409, "This node changed after the request was filed.")
+    if title is not None:
+        node.title = _clean(title, MAX_TITLE, required=True, field="Title")
+    if summary is not None:
+        node.summary = _clean(summary, MAX_SUMMARY)
+    node.version += 1
+    node.updated_by = user_id
+    node.updated_at = _now()
+    db.commit()
+    return node
+
+
+def _descendants(db: Session, node_id: str) -> set[str]:
+    out: set[str] = set()
+    frontier = [node_id]
+    while frontier:
+        kids = [
+            i for (i,) in db.query(KnowledgeNode.id).filter(KnowledgeNode.parent_id.in_(frontier)).all()
+        ]
+        kids = [k for k in kids if k not in out]
+        out.update(kids)
+        frontier = kids
+    return out
+
+
+def move_node(db: Session, role: str, user_id: str, node_id: str, parent_id: str | None) -> KnowledgeNode:
+    _require_edit(role)
+    return _move_node(db, user_id, node_id, parent_id)
+
+
+def _move_node(db: Session, user_id: str, node_id: str, parent_id: str | None) -> KnowledgeNode:
+    node = db.get(KnowledgeNode, node_id)
+    if node is None:
+        raise TreeError(404, "Node not found.")
+    _parent_ok(db, node.domain_id, parent_id)
+    if parent_id is not None and (parent_id == node_id or parent_id in _descendants(db, node_id)):
+        raise TreeError(400, "A node cannot be moved under itself.")
+    node.parent_id = parent_id
+    node.position = _next_position(db, node.domain_id, parent_id)
+    node.version += 1
+    node.updated_by = user_id
+    node.updated_at = _now()
+    db.commit()
+    return node
+
+
+def delete_node(db: Session, role: str, node_id: str) -> int:
+    _require_edit(role)
+    return _delete_node(db, node_id)
+
+
+def _delete_node(db: Session, node_id: str) -> int:
+    node = db.get(KnowledgeNode, node_id)
+    if node is None:
+        raise TreeError(404, "Node not found.")
+    ids = _descendants(db, node_id) | {node_id}
+    db.query(KnowledgeNode).filter(KnowledgeNode.id.in_(ids)).delete(synchronize_session=False)
+    db.commit()
+    return len(ids)
+
+
+# ── build from a raw file ─────────────────────────────────────────────────
+
+
+def import_file(
+    db: Session, role: str, user_id: str, *, domain_id: str | None, new_domain_name: str | None,
+    filename: str, data: bytes,
+) -> dict:
+    _require_edit(role)
+    try:
+        text = ingest.extract_text(filename, data)
+    except ingest.IngestError as exc:
+        raise TreeError(400, str(exc)) from exc
+    if domain_id:
+        domain = db.get(KnowledgeDomain, domain_id)
+        if domain is None:
+            raise TreeError(404, "Domain not found.")
+    else:
+        domain = _create_domain(db, user_id, new_domain_name or filename.rsplit(".", 1)[0], "")
+    source = KnowledgeSource(
+        domain_id=domain.id,
+        filename=_clean(filename, 255) or "file",
+        size=len(data),
+        sha256=hashlib.sha256(data).hexdigest(),
+        text=text,
+        uploaded_by=user_id,
+    )
+    db.add(source)
+    db.flush()
+    stack: list[tuple[int, str]] = []  # (level, node id)
+    created = 0
+    positions: dict[str | None, int] = {}
+    for sec in ingest.build_outline(text):
+        while stack and stack[-1][0] >= sec.level:
+            stack.pop()
+        parent_id = stack[-1][1] if stack else None
+        if parent_id not in positions:
+            positions[parent_id] = _next_position(db, domain.id, parent_id) if parent_id is None else 0
+        node = KnowledgeNode(
+            domain_id=domain.id,
+            parent_id=parent_id,
+            title=sec.title,
+            summary=ingest.summarise(text, sec),
+            position=positions[parent_id],
+            refs=[{"source_id": source.id, "start": sec.start, "end": sec.end}],
+            updated_by=user_id,
+        )
+        positions[parent_id] += 1
+        db.add(node)
+        db.flush()
+        stack.append((sec.level, node.id))
+        created += 1
+    domain.updated_at = _now()
+    db.commit()
+    return {"domain_id": domain.id, "source_id": source.id, "nodes_created": created}

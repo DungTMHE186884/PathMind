@@ -223,7 +223,6 @@ const GROUPS: DashboardGroup[] = [
       },
       {
         key: "memory",
-        adminOnly: true,
         href: "/memory",
         icon: Brain,
         title: { zh: "记忆", en: "Memory" },

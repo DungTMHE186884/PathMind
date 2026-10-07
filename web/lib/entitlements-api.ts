@@ -1,7 +1,13 @@
 import { apiFetch, apiUrl } from "@/lib/api";
 
 /** Paid-only surfaces (see ``pathmind/services/entitlements.py``). */
-export type PlanFeature = "community" | "space_extras" | "reading" | "watching";
+export type PlanFeature =
+  | "community"
+  | "space_extras"
+  | "courses"
+  | "memory"
+  | "reading"
+  | "watching";
 /** Numeric allowances; ``null`` = unlimited, ``0`` = not on this plan. */
 export type PlanLimit =
   | "max_skills"
@@ -37,6 +43,8 @@ export type PlanEntitlements = Record<PlanFeature, boolean> &
 export const PLAN_FEATURES: PlanFeature[] = [
   "community",
   "space_extras",
+  "courses",
+  "memory",
   "reading",
   "watching",
 ];

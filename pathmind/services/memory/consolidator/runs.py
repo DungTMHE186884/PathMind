@@ -73,6 +73,9 @@ class Run:
     params: dict[str, Any]
     language: str
     user_label: str
+    #: Account that started the run. Runs, their events and their undo stack are
+    #: private to it; ``""`` is the single-user / CLI owner.
+    owner_id: str = ""
     status: RunStatus = "queued"
     started_at: str = ""
     ended_at: str | None = None
@@ -106,7 +109,7 @@ class Run:
 
 
 class RunBusyError(RuntimeError):
-    """Raised when a (layer, key) already has an active run."""
+    """Raised when a (layer, key) already has an active run for the same owner."""
 
 
 # ContextVar holds the current Run for handlers running inside the task.
@@ -124,26 +127,37 @@ class RunManager:
     def __init__(self) -> None:
         self._runs: dict[str, Run] = {}
         self._order: list[str] = []  # FIFO for eviction
-        self._active: dict[tuple[str, str], str] = {}
+        self._active: dict[tuple[str, str, str], str] = {}
         self._lock = asyncio.Lock()
 
     # ── Lookup ─────────────────────────────────────────────────────────
 
-    def get(self, run_id: str) -> Run | None:
-        return self._runs.get(run_id)
+    def get(self, run_id: str, owner_id: str | None = None) -> Run | None:
+        """The run, or ``None`` when unknown — or owned by someone else."""
+        run = self._runs.get(run_id)
+        if run is not None and owner_id is not None and run.owner_id != owner_id:
+            return None
+        return run
 
-    def active_for(self, layer: str, key: str) -> Run | None:
-        run_id = self._active.get((layer, key))
+    def active_for(self, layer: str, key: str, owner_id: str = "") -> Run | None:
+        run_id = self._active.get((owner_id, layer, key))
         if run_id is None:
             return None
         run = self._runs.get(run_id)
         return run if run is not None and run.active else None
 
-    def list_for(self, layer: str | None = None, key: str | None = None) -> list[Run]:
+    def list_for(
+        self,
+        layer: str | None = None,
+        key: str | None = None,
+        owner_id: str | None = None,
+    ) -> list[Run]:
         out: list[Run] = []
         for rid in self._order:
             run = self._runs.get(rid)
             if run is None:
+                continue
+            if owner_id is not None and run.owner_id != owner_id:
                 continue
             if layer is not None and run.layer != layer:
                 continue
@@ -164,6 +178,7 @@ class RunManager:
         params: dict[str, Any] | None = None,
         language: str = "en",
         user_label: str = "anonymous",
+        owner_id: str = "",
     ) -> Run:
         """Register and kick off a new run.
 
@@ -172,7 +187,7 @@ class RunManager:
         the event buffer + waiter machinery.
         """
         async with self._lock:
-            if self.active_for(layer, key) is not None:
+            if self.active_for(layer, key, owner_id) is not None:
                 raise RunBusyError(f"a run is already in progress for {layer}/{key}")
             run = Run(
                 id=uuid.uuid4().hex,
@@ -182,19 +197,20 @@ class RunManager:
                 params=dict(params or {}),
                 language=language,
                 user_label=user_label,
+                owner_id=owner_id,
                 status="queued",
                 started_at=_now_iso(),
             )
             self._runs[run.id] = run
             self._order.append(run.id)
-            self._active[(layer, key)] = run.id
+            self._active[(owner_id, layer, key)] = run.id
             self._evict_if_needed()
 
         run._task = asyncio.create_task(self._drive(run, runner))
         return run
 
-    async def cancel(self, run_id: str) -> bool:
-        run = self._runs.get(run_id)
+    async def cancel(self, run_id: str, owner_id: str | None = None) -> bool:
+        run = self.get(run_id, owner_id)
         if run is None or not run.active:
             return False
         run._cancel_flag.set()
@@ -202,9 +218,9 @@ class RunManager:
             run._task.cancel()
         return True
 
-    async def undo_last(self, run_id: str) -> RunEvent | None:
+    async def undo_last(self, run_id: str, owner_id: str | None = None) -> RunEvent | None:
         """Restore the document snapshot before the latest run write."""
-        run = self._runs.get(run_id)
+        run = self.get(run_id, owner_id)
         if run is None:
             raise KeyError(run_id)
         if run.active:
@@ -294,7 +310,7 @@ class RunManager:
         finally:
             run.ended_at = _now_iso()
             await self._emit(run, {"stage": "run_ended", "status": run.status})
-            self._active.pop((run.layer, run.key), None)
+            self._active.pop((run.owner_id, run.layer, run.key), None)
             # Wake any remaining waiters so they observe the terminal state.
             for w in list(run._waiters):
                 w.set()

@@ -12,6 +12,8 @@ Erased
     knowledge bases, memory, partners, uploaded files, settings, API keys;
   * per-user system state: permission grants, device credentials, stored
     connector secrets / MCP / CLI-app state;
+  * anonymised memory aggregates the person opted to share (and the consent
+    record that linked them);
   * social links: friendships, partner shares, study-room memberships (rooms
     the user hosted are closed), pending email-verification codes.
 
@@ -130,6 +132,9 @@ def _scrub_database(user_id: str) -> None:
         db.query(EmailVerification).filter(EmailVerification.user_id == user_id).delete(
             synchronize_session=False
         )
+        from pathmind.services.memory_insights import withdraw as _withdraw_insights
+
+        _withdraw_insights(db, user_id)
         for sub in db.query(Subscription).filter(Subscription.user_id == user_id).all():
             if sub.status == "active":
                 sub.status = "canceled"

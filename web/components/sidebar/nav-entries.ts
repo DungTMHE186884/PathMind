@@ -5,7 +5,9 @@ import {
   House,
   LayoutGrid,
   MessagesSquare,
+  Network,
   PenLine,
+  School,
   Settings,
   type LucideIcon,
 } from 'lucide-react'
@@ -50,6 +52,14 @@ export const PRIMARY_NAV: NavEntry[] = [
     tooltipKey: 'One tutor, your own way to learn.',
   },
   { href: '/space', label: 'Learning Space', icon: LayoutGrid, tooltipKey: 'Space tooltip' },
+  {
+    href: '/courses',
+    label: 'Courses',
+    icon: School,
+    tooltipKey: 'Courses tooltip',
+    plan: { feature: 'courses' },
+  },
+  { href: '/knowledge-tree', label: 'Knowledge Tree', icon: Network, tooltipKey: 'Knowledge Tree tooltip' },
   {
     href: '/co-writer',
     label: 'Co-Writer',

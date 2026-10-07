@@ -2,6 +2,12 @@
 
 Each round of work was shipped as a numbered patch (`pmNN`). Newest first.
 
+## pm63 — 2026-10-01 · Courses is a paid feature
+- New `courses` entitlement (Free off; Plus, Pro, Unlimited on), editable in `/admin/plans`.
+- "Courses" entry in the sidebar (after Learning Space) with a lock and upgrade link on Free; `/courses` shows the upgrade notice.
+- `/api/courses`: only the list stays open (answers empty + `locked` so chat and sidebars keep working); everything else is 402 with an upgrade hint. Existing courses are kept when a plan is downgraded.
+- Pricing shows "Study courses" on paid plans.
+
 ## pm62 — 2026-09-30 · Review round on plan gating
 - Community unread badge (`GET /api/community/notifications/unread-count`) is open to every plan, so the sidebar poll no longer gets a 402 every minute on Free (`community_guard`).
 - Includes pm61 (see below).

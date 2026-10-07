@@ -1,8 +1,10 @@
 """User-tunable parameters for the memory consolidator.
 
-Single source of truth is ``data/user/settings/main.yaml`` under the
-``memory:`` subtree. Defaults live here. The frontend ``/settings/memory``
-page reads/writes the same subtree via the API.
+Deployment defaults live in ``data/user/settings/main.yaml`` under the
+``memory:`` subtree (administrators). Each account can override them in its own
+``<memory dir>/settings.json``; the override wins and never touches anyone
+else. Code defaults live here. The frontend ``/settings/memory`` page reads and
+writes the account's own override via the API.
 
 Decoupled from the algorithm code: every mode picks values up via
 :func:`load_memory_settings`, never via module-level constants.
@@ -11,11 +13,17 @@ Decoupled from the algorithm code: every mode picks values up via
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field, fields, is_dataclass
+import json
+import logging
+from pathlib import Path
 from typing import Any, Literal
 
 from pathmind.utils.config_manager import ConfigManager
 
 _SETTINGS_KEY = "memory"
+_USER_FILE = "settings.json"
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -69,26 +77,62 @@ class MemorySettings:
     reference: ReferenceSettings = field(default_factory=ReferenceSettings)
 
 
-def load_memory_settings() -> MemorySettings:
-    """Return the current ``memory:`` subtree merged on top of defaults.
+def _user_settings_path() -> Path:
+    from .paths import memory_root
 
-    Missing keys fall back to defaults. Out-of-range numeric values are
-    clamped to safe ranges so a malformed YAML never crashes a run.
+    return memory_root() / _USER_FILE
+
+
+def _read_user_overrides() -> dict[str, Any]:
+    try:
+        path = _user_settings_path()
+        if not path.exists():
+            return {}
+        data = json.loads(path.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except Exception:  # a damaged override must never break a run
+        logger.warning("memory settings override unreadable; using defaults", exc_info=True)
+        return {}
+
+
+def _merge(base: dict[str, Any], over: dict[str, Any]) -> dict[str, Any]:
+    out = dict(base)
+    for key, value in over.items():
+        if isinstance(value, dict) and isinstance(out.get(key), dict):
+            out[key] = _merge(out[key], value)
+        else:
+            out[key] = value
+    return out
+
+
+def load_memory_settings() -> MemorySettings:
+    """Return the effective ``memory:`` settings for the current account.
+
+    Code defaults, then the deployment subtree, then this account's own
+    overrides. Missing keys fall back; out-of-range numbers are clamped so a
+    malformed file never crashes a run.
     """
     raw = ConfigManager().load_config().get(_SETTINGS_KEY) or {}
-    return _from_dict(MemorySettings, raw)
+    return _from_dict(MemorySettings, _merge(raw if isinstance(raw, dict) else {}, _read_user_overrides()))
 
 
-def save_memory_settings(payload: dict[str, Any]) -> MemorySettings:
-    """Merge ``payload`` into the on-disk ``memory:`` subtree.
+def save_memory_settings(payload: dict[str, Any], *, scope: str = "user") -> MemorySettings:
+    """Persist ``payload`` (coerced to the schema, unknown keys dropped).
 
-    Unknown keys are dropped; values are coerced to the schema's types
-    so the YAML never picks up junk. Returns the post-merge settings.
+    ``scope="user"`` writes the current account's own file; ``scope="global"``
+    writes the deployment subtree and is for administrators only.
     """
     merged = _from_dict(MemorySettings, payload)
     coerced = asdict(merged)
-    ConfigManager().save_config({_SETTINGS_KEY: coerced})
-    return merged
+    if scope == "global":
+        ConfigManager().save_config({_SETTINGS_KEY: coerced})
+        return merged
+    path = _user_settings_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(coerced, ensure_ascii=False, indent=2), encoding="utf-8")
+    tmp.replace(path)
+    return load_memory_settings()
 
 
 def memory_settings_dict() -> dict[str, Any]:

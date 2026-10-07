@@ -753,6 +753,10 @@ def entitlement_features(plan: SubscriptionPlan, language: str | None = None) ->
         lines.append(_t("billing.feature_ent_reading", language=language))
     if ent["space_extras"]:
         lines.append(_t("billing.feature_ent_space", language=language))
+    if ent["courses"]:
+        lines.append(_t("billing.feature_ent_courses", language=language))
+    if ent["memory"]:
+        lines.append(_t("billing.feature_ent_memory", language=language))
     if ent["community"]:
         lines.append(_t("billing.feature_ent_community", language=language))
     if ent["max_skills"] is None:

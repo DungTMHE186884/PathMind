@@ -61,6 +61,34 @@ Layer = Literal["L2", "L3"]
 # ── Helpers ──────────────────────────────────────────────────────────────
 
 
+def _owner_id() -> str:
+    """The signed-in account; consolidator runs are private to it."""
+    from pathmind.multi_user.context import get_current_user
+
+    return str(get_current_user().id or "")
+
+
+def _require_credits() -> None:
+    """402 before starting an AI run when the account has no credits left.
+
+    The run itself is charged per LLM call to the account that started it (see
+    ``services.llm.metrics``); this only refuses to begin on an empty balance.
+    """
+    from pathmind.database.connection import get_db_session
+    from pathmind.multi_user.context import get_current_user
+    from pathmind.services.quota_service import check_turn_allowed
+
+    user = get_current_user()
+    try:
+        with get_db_session() as db:
+            allowed, reason = check_turn_allowed(user.id, db, role=getattr(user, "role", None))
+    except Exception:  # never block on a lookup failure; the per-call charge still applies
+        logger.warning("memory credit pre-check failed", exc_info=True)
+        return
+    if not allowed:
+        raise HTTPException(status_code=402, detail=reason)
+
+
 def _validate_doc_key(layer: Layer, key: str) -> None:
     if layer == "L2" and key not in SURFACES:
         raise HTTPException(status_code=404, detail=f"unknown surface {key!r}")
@@ -185,7 +213,7 @@ async def reset_doc(layer: str, key: str):
 
     from pathmind.services.memory.consolidator.runs import get_run_manager
 
-    if get_run_manager().active_for(lyr, key) is not None:
+    if get_run_manager().active_for(lyr, key, _owner_id()) is not None:
         raise HTTPException(
             status_code=409,
             detail="cancel the active run before resetting this doc",
@@ -326,6 +354,7 @@ async def start_run(req: RunStartRequest):
         get_run_manager,
     )
 
+    _require_credits()
     manager = get_run_manager()
     runner = _runner_for(req)
     selection = (
@@ -346,6 +375,7 @@ async def start_run(req: RunStartRequest):
                 "llm_selection": selection,
             },
             language=req.language,
+            owner_id=_owner_id(),
         )
     except RunBusyError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
@@ -356,7 +386,7 @@ async def start_run(req: RunStartRequest):
 async def get_run(run_id: str):
     from pathmind.services.memory.consolidator.runs import get_run_manager
 
-    run = get_run_manager().get(run_id)
+    run = get_run_manager().get(run_id, _owner_id())
     if run is None:
         raise HTTPException(status_code=404, detail="unknown run_id")
     return run.to_dict()
@@ -366,7 +396,7 @@ async def get_run(run_id: str):
 async def cancel_run(run_id: str):
     from pathmind.services.memory.consolidator.runs import get_run_manager
 
-    ok = await get_run_manager().cancel(run_id)
+    ok = await get_run_manager().cancel(run_id, _owner_id())
     if not ok:
         raise HTTPException(status_code=409, detail="not active")
     return {"run_id": run_id, "cancelled": True}
@@ -381,14 +411,14 @@ async def undo_run_edit(run_id: str):
 
     manager = get_run_manager()
     try:
-        event = await manager.undo_last(run_id)
+        event = await manager.undo_last(run_id, _owner_id())
     except KeyError:
         raise HTTPException(status_code=404, detail="unknown run_id")
     except RunBusyError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
     if event is None:
         raise HTTPException(status_code=409, detail="nothing to undo")
-    run = manager.get(run_id)
+    run = manager.get(run_id, _owner_id())
     return {
         "run_id": run_id,
         "undone": True,
@@ -404,7 +434,7 @@ async def list_runs(layer: str | None = None, key: str | None = None):
     lyr = _validate_layer(layer) if layer is not None else None
     if lyr and key is not None:
         _validate_doc_key(lyr, key)
-    runs = get_run_manager().list_for(layer=lyr, key=key)
+    runs = get_run_manager().list_for(layer=lyr, key=key, owner_id=_owner_id())
     return {"runs": [r.to_dict() for r in runs]}
 
 
@@ -419,7 +449,7 @@ async def stream_run_events(run_id: str, since: int = 0):
     from pathmind.services.memory.consolidator.runs import get_run_manager
 
     manager = get_run_manager()
-    run = manager.get(run_id)
+    run = manager.get(run_id, _owner_id())
     if run is None:
         raise HTTPException(status_code=404, detail="unknown run_id")
 
@@ -465,6 +495,9 @@ def _legacy_run_stream(req: RunStartRequest) -> StreamingResponse:
         get_run_manager,
     )
 
+    _require_credits()
+    owner_id = _owner_id()
+
     async def producer():
         manager = get_run_manager()
         runner = _runner_for(req)
@@ -486,6 +519,7 @@ def _legacy_run_stream(req: RunStartRequest) -> StreamingResponse:
                     "llm_selection": selection,
                 },
                 language=req.language,
+                owner_id=owner_id,
             )
         except RunBusyError as exc:
             yield (
@@ -621,16 +655,27 @@ async def get_memory_settings_endpoint():
     return memory_settings_dict()
 
 
-# Writes the deployment-wide main.yaml ``memory:`` subtree: administrators only.
-@router.put("/settings", dependencies=[Depends(require_admin)])
+@router.put("/settings")
 async def put_memory_settings(payload: dict):
-    """Merge the payload into the ``memory:`` subtree and persist."""
+    """Save the caller's own memory settings (they apply to this account only)."""
     from pathmind.services.memory.settings import (
         memory_settings_dict,
         save_memory_settings,
     )
 
-    save_memory_settings(payload)
+    save_memory_settings(payload, scope="user")
+    return memory_settings_dict()
+
+
+# Writes the deployment-wide main.yaml ``memory:`` defaults: administrators only.
+@router.put("/settings/global", dependencies=[Depends(require_admin)])
+async def put_global_memory_settings(payload: dict):
+    from pathmind.services.memory.settings import (
+        memory_settings_dict,
+        save_memory_settings,
+    )
+
+    save_memory_settings(payload, scope="global")
     return memory_settings_dict()
 
 

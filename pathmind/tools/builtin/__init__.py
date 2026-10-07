@@ -1715,6 +1715,8 @@ USER_TOGGLEABLE_TOOL_NAMES: tuple[str, ...] = (
 CONFIGURABLE_BUILTIN_TOOL_NAMES: tuple[str, ...] = (
     "rag",
     "kb_files",
+    "knowledge_tree",
+    "knowledge_search",
     "knowledge_frontier",
     "read_source",
     "read_memory",
@@ -1758,6 +1760,116 @@ def __getattr__(name: str):
     return value
 
 
+class KnowledgeTreeTool(_PromptHintsMixin, BaseTool):
+    """Read the curated knowledge tree (Domain -> topic -> node)."""
+
+    def get_definition(self) -> ToolDefinition:
+        return ToolDefinition(
+            name="knowledge_tree",
+            description=(
+                "Browse the curated knowledge tree maintained by the administrators: "
+                "list domains, show a domain's outline, read one node with its "
+                "source excerpt, or search nodes by keyword."
+            ),
+            parameters=[
+                ToolParameter(
+                    name="action",
+                    type="string",
+                    description="domains | outline | read | search",
+                    enum=["domains", "outline", "read", "search"],
+                ),
+                ToolParameter(
+                    name="domain_id",
+                    type="string",
+                    description="Domain id (for action=outline).",
+                    required=False,
+                ),
+                ToolParameter(
+                    name="node_id",
+                    type="string",
+                    description="Node id (for action=read).",
+                    required=False,
+                ),
+                ToolParameter(
+                    name="query",
+                    type="string",
+                    description="Keyword (for action=search).",
+                    required=False,
+                ),
+            ],
+        )
+
+    async def execute(self, **kwargs: Any) -> ToolResult:
+        from pathmind.database.connection import get_db_session
+        from pathmind.services import knowledge_tree as kt
+
+        action = str(kwargs.get("action") or "domains").strip()
+        try:
+            with get_db_session() as db:
+                if action == "domains":
+                    rows = kt.domain_summaries(db)
+                    text = "\n".join(
+                        f"- {d['name']} [{d['id']}] ({d['nodes']} nodes) {d['description'][:120]}"
+                        for d in rows
+                    ) or "(no domains yet)"
+                elif action == "outline":
+                    text = kt.outline_text(db, str(kwargs.get("domain_id") or ""))
+                elif action == "read":
+                    d = kt.node_detail(db, str(kwargs.get("node_id") or ""))
+                    parts = [f"# {d['title']}", d["summary"]]
+                    for ex in d["excerpts"]:
+                        parts.append(f"--- source: {ex['filename']} ---\n{ex['text']}")
+                    text = "\n\n".join(p for p in parts if p)
+                elif action == "search":
+                    hits = kt.search_nodes(db, str(kwargs.get("query") or ""))
+                    text = "\n".join(
+                        f"- {h['title']} [{h['id']}] ({h['domain']}): {h['summary'][:160]}" for h in hits
+                    ) or "(no matches)"
+                else:
+                    return ToolResult(content=f"Error: unknown action {action!r}.", success=False)
+        except kt.TreeError as exc:
+            return ToolResult(content=f"Error: {exc.message}", success=False)
+        return ToolResult(content=text, metadata={"action": action, "char_count": len(text)})
+
+
+class KnowledgeSearchTool(_PromptHintsMixin, BaseTool):
+    """Unified retrieval: curated knowledge tree + GraphRAG in one call."""
+
+    def get_definition(self) -> ToolDefinition:
+        return ToolDefinition(
+            name="knowledge_search",
+            description=(
+                "Answer a subject question from the organisation's curated knowledge "
+                "tree and its GraphRAG knowledge base together. The tree locates the "
+                "topic and gives authoritative excerpts; GraphRAG adds related passages "
+                "and relationships. Returns one merged context with topic paths and sources."
+            ),
+            parameters=[
+                ToolParameter(name="query", type="string", description="The question or topic to look up."),
+                ToolParameter(
+                    name="domain_id",
+                    type="string",
+                    description="Optional: restrict to one domain (from knowledge_tree action=domains).",
+                    required=False,
+                ),
+            ],
+        )
+
+    async def execute(self, **kwargs: Any) -> ToolResult:
+        from pathmind.services.knowledge_tree.unified import knowledge_search
+
+        result = await knowledge_search(
+            str(kwargs.get("query") or ""),
+            domain_id=str(kwargs.get("domain_id") or "") or None,
+            event_sink=kwargs.get("event_sink"),
+        )
+        return ToolResult(
+            content=result["content"],
+            sources=result["sources"],
+            metadata={"scope": result["scope"], "notes": result["notes"], "char_count": len(result["content"])},
+        )
+
+
 __all__ = [
     "BUILTIN_TOOL_NAMES",
     "BUILTIN_TOOL_TYPES",
@@ -1773,6 +1885,8 @@ __all__ = [
     "GeoGebraAnalysisTool",
     "GithubTool",
     "KbFilesTool",
+    "KnowledgeTreeTool",
+    "KnowledgeSearchTool",
     "ImagegenTool",
     "KnowledgeFrontierTool",
     "VideogenTool",

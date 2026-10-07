@@ -1,0 +1,148 @@
+"""One retrieval call that uses the curated tree *and* GraphRAG together.
+
+Why both: the tree is small, authoritative and human-curated (it says *where* a
+question lives and carries exact source excerpts); GraphRAG is broad and
+semantic (it finds relationships and passages across the whole corpus). The
+adapter therefore works in two stages:
+
+1. **Scope** - rank tree nodes against the question (``find_scope``). The hits
+   give the topic path(s) and the domain(s) the question belongs to.
+2. **Retrieve** - query the GraphRAG knowledge base the administrator linked to
+   that domain, nudging the query with the scope's topic names, and merge both
+   halves into one answer context with node paths and sources.
+
+If either half is missing (nothing matched in the tree, no KB linked, the KB
+call fails) the other still answers and the result says what was skipped.
+``graph_search`` is injectable so the merge logic is testable without an index.
+"""
+
+from __future__ import annotations
+
+from typing import Any, Awaitable, Callable
+
+from pathmind.database.models import KnowledgeDomain
+
+from . import service as svc
+
+GraphSearch = Callable[..., Awaitable[dict[str, Any]]]
+
+MAX_KBS = 2
+
+
+async def _admin_graph_search(*, query: str, kb_name: str, event_sink=None, **kwargs: Any) -> dict[str, Any]:
+    """Query a KB from the administrator's library.
+
+    Linking a KB to a domain is the administrator's explicit act of publishing it
+    through the tutor, so this deliberately does not require the *asking* user to
+    hold a per-KB grant.
+    """
+    from pathmind.multi_user.knowledge_access import admin_kb_base_dir
+    from pathmind.tools.rag_tool import rag_search
+
+    return await rag_search(
+        query=query, kb_name=kb_name, kb_base_dir=str(admin_kb_base_dir()), event_sink=event_sink, **kwargs
+    )
+
+
+def _excerpt(db, node_id: str, chars: int) -> tuple[str, str]:
+    try:
+        detail = svc.node_detail(db, node_id, excerpt_chars=chars)
+    except svc.TreeError:
+        return "", ""
+    first = detail["excerpts"][0] if detail["excerpts"] else None
+    return (first["text"], first["filename"]) if first else ("", "")
+
+
+async def knowledge_search(
+    query: str,
+    *,
+    domain_id: str | None = None,
+    kb_name: str | None = None,
+    graph_search: GraphSearch | None = None,
+    event_sink=None,
+    max_nodes: int = 4,
+    excerpt_chars: int = 1200,
+) -> dict[str, Any]:
+    from pathmind.database.connection import get_db_session
+
+    query = (query or "").strip()
+    if not query:
+        raise ValueError("knowledge_search needs a non-empty query.")
+    graph = graph_search or _admin_graph_search
+
+    with get_db_session() as db:
+        hits = svc.find_scope(db, query, domain_id=domain_id, limit=max_nodes)
+        tree_blocks: list[str] = []
+        tree_sources: list[dict[str, Any]] = []
+        for h in hits:
+            text, filename = _excerpt(db, h["id"], excerpt_chars)
+            trail = " > ".join([h["domain"], *h["path"], h["title"]])
+            block = f"### {trail}\n{h['summary']}".strip()
+            if text:
+                block += f"\n\n(source excerpt: {filename})\n{text}"
+            tree_blocks.append(block)
+            tree_sources.append(
+                {"type": "knowledge_tree", "title": h["title"], "node_id": h["id"],
+                 "domain": h["domain"], "path": h["path"], "source": filename or h["domain"]}
+            )
+        # Which GraphRAG knowledge bases to ask: explicit > the asked domain's >
+        # the hits' domains' > (nothing matched) every linked domain, capped.
+        domains = {d.id: d for d in db.query(KnowledgeDomain).all()}
+        kbs: list[str] = []
+
+        def want(name: str | None) -> None:
+            if name and name not in kbs and len(kbs) < MAX_KBS:
+                kbs.append(name)
+
+        if kb_name:
+            want(kb_name.strip())
+        elif domain_id and domain_id in domains:
+            want(domains[domain_id].kb_name)
+        else:
+            for h in hits:
+                want(domains.get(h["domain_id"]).kb_name if h["domain_id"] in domains else None)
+            if not hits:
+                for d in sorted(domains.values(), key=lambda d: d.name):
+                    want(d.kb_name)
+        focus = list(dict.fromkeys(h["title"] for h in hits))[:5]
+
+    notes: list[str] = []
+    graph_results: list[dict[str, Any]] = []
+    graph_sources: list[dict[str, Any]] = []
+    graph_query = query if not focus else f"{query}\n\nFocus on these topics: {'; '.join(focus)}."
+    for name in kbs:
+        try:
+            result = await graph(query=graph_query, kb_name=name, event_sink=event_sink)
+        except Exception as exc:  # noqa: BLE001 - a broken index must not hide the tree half
+            notes.append(f"GraphRAG '{name}' was unavailable ({type(exc).__name__}).")
+            continue
+        if result.get("error_type"):
+            notes.append(f"GraphRAG '{name}' could not answer ({result.get('error_type')}).")
+            continue
+        answer = str(result.get("answer") or result.get("content") or "").strip()
+        graph_results.append({"kb_name": name, "answer": answer})
+        graph_sources.extend(
+            {"type": "rag", "kb_name": name, **item}
+            for item in (result.get("sources") or []) if isinstance(item, dict)
+        )
+    if not kbs:
+        notes.append("No GraphRAG knowledge base is linked to the matching domain.")
+    if not hits:
+        notes.append("No curated topic matched the question.")
+
+    parts: list[str] = []
+    if tree_blocks:
+        parts.append("## Curated knowledge tree\n\n" + "\n\n".join(tree_blocks))
+    for g in graph_results:
+        if g["answer"]:
+            parts.append(f"## GraphRAG ({g['kb_name']})\n\n{g['answer']}")
+    if notes:
+        parts.append("_Notes: " + " ".join(notes) + "_")
+    return {
+        "query": query,
+        "content": "\n\n".join(parts) if parts else "Nothing found.",
+        "scope": [{k: h[k] for k in ("id", "title", "domain", "path", "score")} for h in hits],
+        "graph": graph_results,
+        "sources": [*tree_sources, *graph_sources],
+        "notes": notes,
+    }

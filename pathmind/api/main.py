@@ -498,6 +498,7 @@ from pathmind.api.routers import (
     billing,
     book,
     capabilities,
+    knowledge_tree,
     capabilities_settings,
     co_writer,
     community,
@@ -510,6 +511,7 @@ from pathmind.api.routers import (
     mastery_path,
     mcp_settings,
     memory,
+    memory_sharing,
     notebook,
     outputs,
     partner_groups,
@@ -572,9 +574,17 @@ _community = _auth + [Depends(_ent.community_guard)]
 _reading = _auth + [Depends(_ent.reading_guard)]
 _watching = _auth + [Depends(_ent.feature_dependency("watching"))]
 _notebooks = _auth + [Depends(_ent.notebook_guard)]
+_courses = _auth + [Depends(_ent.courses_guard)]
+_memory = _auth + [Depends(_ent.feature_dependency("memory"))]
 _question_bank = _auth + [Depends(_ent.question_bank_guard)]
 
 app.include_router(billing.router, prefix="/api/billing", tags=["billing"])
+app.include_router(
+    knowledge_tree.router,
+    prefix="/api/knowledge-tree",
+    tags=["knowledge-tree"],
+    dependencies=_auth,
+)
 app.include_router(friends.router, prefix="/api/friends", tags=["friends"], dependencies=_auth)
 app.include_router(partner_shares.router, prefix="/api/social", tags=["social"], dependencies=_auth)
 app.include_router(community.router, prefix="/api/community", tags=["community"], dependencies=_community)
@@ -625,7 +635,14 @@ app.include_router(
     tags=["reading-extensions"],
     dependencies=_reading,
 )
-app.include_router(memory.router, prefix="/api/memory", tags=["memory"], dependencies=_auth)
+app.include_router(memory.router, prefix="/api/memory", tags=["memory"], dependencies=_memory)
+# Consent management is never plan-gated: anyone can switch sharing off and erase it.
+app.include_router(
+    memory_sharing.router,
+    prefix="/api/memory-sharing",
+    tags=["memory-sharing"],
+    dependencies=_auth,
+)
 app.include_router(
     capabilities_settings.router,
     prefix="/api/capabilities",
@@ -639,7 +656,7 @@ app.include_router(
     dependencies=_auth,
 )
 app.include_router(sessions.router, prefix="/api/sessions", tags=["sessions"], dependencies=_auth)
-app.include_router(courses.router, prefix="/api/courses", tags=["courses"], dependencies=_auth)
+app.include_router(courses.router, prefix="/api/courses", tags=["courses"], dependencies=_courses)
 app.include_router(
     question_notebook.router,
     prefix="/api/question-notebook",

@@ -24,6 +24,8 @@ export const ROUTE_PLANS: ReadonlyArray<{
   title: string;
 }> = [
   { prefix: "/community", requires: { feature: "community" }, title: "Community" },
+  { prefix: "/courses", requires: { feature: "courses" }, title: "Courses" },
+  { prefix: "/memory", requires: { feature: "memory" }, title: "Memory" },
   { prefix: "/notebooks", requires: { feature: "space_extras" }, title: "Notebooks" },
   { prefix: "/space/questions", requires: { feature: "space_extras" }, title: "Question Bank" },
   { prefix: "/space/skills", requires: { feature: "space_extras" }, title: "Skills" },

@@ -36,6 +36,11 @@ Chú thích: ✅ hoàn thiện · 🟡 chạy được nhưng chưa đầy đủ
 
 ---
 
+### Cây tri thức + công cụ truy hồi hợp nhất (2026-10-07)
+- Menu **Knowledge Tree** (`/knowledge-tree`, API `/api/knowledge-tree`). **Chỉ admin** tạo/sửa/xoá (nhập PDF/DOCX/MD/TXT: tiêu đề → nút), mọi người đăng nhập chỉ đọc. Bảng `knowledge_domains` (có `kb_name` nối tới KB GraphRAG trong kho của admin), `knowledge_sources`, `knowledge_nodes`; code ở `services/knowledge_tree/` (`ingest.py`, `service.py`, `unified.py`).
+- **Công cụ AI**: `knowledge_tree` (duyệt domains/outline/read/search) và `knowledge_search` (truy hồi hợp nhất: câu hỏi → `find_scope` chấm điểm từ khoá trên cây → hỏi KB GraphRAG đã nối với domain đó, kèm gợi ý chủ đề → gộp "Curated knowledge tree" + "GraphRAG" + nguồn/đường dẫn nút). Thiếu một nửa thì nửa còn lại vẫn trả lời, kèm `notes`. Chỉ gắn vào chat khi cây có nội dung (`has_knowledge_tree`).
+- Nối KB với domain = admin **xuất bản** KB đó qua gia sư cho mọi người dùng (adapter dùng `admin_kb_base_dir`, không cần grant từng KB). `POST /ask` (admin) để thử truy hồi. Test: `tests_pm/services/test_knowledge_tree_main.py`.
+
 ### Quyền riêng tư chat Partner (2026-09-29)
 - **Admin không còn đọc được chat của người khác với Partner.** Trước đây admin luôn dùng "kho chung" của mỗi Partner (`data/partners/<id>/sessions/`), nơi cũng chứa tin nhắn kênh IM chưa liên kết tài khoản, và mọi admin đều đọc được kho chung (lịch sử + luồng hoạt động trực tiếp) của mọi Partner.
 - Giờ `personal_actor_id(actor, partner_id)` (`services/partners/interaction.py`): trên Partner **người khác sở hữu**, admin có thư mục chat riêng `users/<admin_id>/sessions` như người dùng thường; chỉ trên Partner do admin quản lý (không có `owner_id`) hoặc của chính admin thì admin mới dùng kho chung như cũ.
@@ -254,6 +259,7 @@ script dev (`scripts/check_*`, `update.py`, …); toàn bộ test (`tests/`, `we
   `skills/create|install` và `community/skills/{slug}/install`; `check_count_limit("max_partners")` trong `_create_partner`.
 - **Đếm lượt tạo trước, hoàn nếu lỗi** (2026-09-30): `reserve_monthly` kiểm tra + cộng 1 lượt trong một bước (khoá `_RESERVE_LOCK`), `release_monthly` trả lại khi tạo book/path thất bại. Trước đây chỉ kiểm tra rồi đếm sau khi tạo xong nên nhiều request song song đều qua cổng (1 lượt dùng thử Free thành nhiều). `POST /topics/draft` vẫn chỉ `check_monthly` (không tốn lượt). Giá trị hạn mức hỏng (`"abc"`, `true`) trong `subscription_plans.entitlements` giữ mặc định thay vì thành "không giới hạn"; lỗi DB khi tra gói ⇒ dùng quyền Free nhưng **không cache** 10 giây.
 - **Huy hiệu thông báo Community mở cho mọi gói** (2026-09-30): `community_guard` thay `feature_dependency("community")` cho router Community; riêng `GET /api/community/notifications/unread-count` không bị chặn vì thanh bên poll mỗi 60 giây cho mọi người dùng (trước đây Free nhận 402 liên tục). Test `test_real_app_puts_the_right_guard_on_each_paid_surface` kiểm tra guard thật sự gắn vào app.
+- **Courses là tính năng trả phí** (2026-10-01): thêm khoá `courses` vào `FEATURE_KEYS` (Free ❌, Plus/Pro/Unlimited ✅). Router `/api/courses` dùng `courses_guard`: chỉ `GET /api/courses` mở cho mọi gói và trả `{courses: [], locked: true}` khi bị khoá (chat composer, sidebar, Notebooks, Question Bank đều gọi `listCourses`); mọi endpoint khác 402 kèm gợi ý nâng gói. Web: mục **Courses** trong `PRIMARY_NAV` (icon `School`, sau Learning Space, `plan: {feature:'courses'}`), `ROUTE_PLANS` có `/courses`, admin `/admin/plans` có công tắc "Courses", bảng giá thêm dòng "Study courses". Chat đã gắn khoá học cũ vẫn chạy (đọc qua service, không qua router). Hạ gói không xoá khoá học.
 - Cache gói theo user 10 giây (`entitlements.invalidate()` khi đổi gói/sửa gói). `GET /api/billing/entitlements`
   trả gói, quyền, hạn mức, mức dùng và `upgrade_to`.
 - Frontend: `EntitlementsProvider` (3 layout) + `PlanGate` (map route ở `lib/plan-routes.ts`, gồm

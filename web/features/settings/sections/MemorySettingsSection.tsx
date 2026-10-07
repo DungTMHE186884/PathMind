@@ -12,6 +12,9 @@ import {
   SettingsPageHeader,
 } from "@/components/settings/shared";
 import { useSettings } from "@/features/settings/store/SettingsStore";
+import { useEntitlements } from "@/components/access/EntitlementsContext";
+import { isPlanLocked, PlanLockedNotice } from "@/components/access/PlanGate";
+import MemorySharingCard from "@/components/settings/MemorySharingCard";
 
 interface MemorySettingsDTO {
   update: { l2_budget: number; l3_budget: number };
@@ -35,6 +38,25 @@ interface MemorySettingsDTO {
 }
 
 export default function MemorySettingsPage() {
+  const ent = useEntitlements();
+  if (ent.loading && !ent.data) return null;
+  if (isPlanLocked(ent, { feature: "memory" })) {
+    return (
+      <div>
+        <MemorySharingCard />
+        <PlanLockedNotice title="Memory" target="memory" />
+      </div>
+    );
+  }
+  return (
+    <div>
+      <MemorySettingsInner />
+      <MemorySharingCard />
+    </div>
+  );
+}
+
+function MemorySettingsInner() {
   const { t } = useTranslation();
   const { registerExtension, pendingExtensionPayload, draftRevision } =
     useSettings();

@@ -1,6 +1,5 @@
-import AdminOnlyGuard from "@/components/common/AdminOnlyGuard";
-
-// Memory is a Personalization surface: administrators only when sign-in is on.
+// Memory is a paid feature (plan gate in the layout group); every account only
+// ever sees and edits its own memory.
 // Bare shell — each memory page owns its own padding + scroll behavior.
 // Hub uses `overflow-y-auto` with a max-width container; the L2/L3
 // workbench pages use a full-height flex column with internal scrolling
@@ -12,7 +11,7 @@ export default function MemoryLayout({
 }>) {
   return (
     <main className="flex h-full min-h-0 flex-col bg-[var(--background)]">
-      <AdminOnlyGuard>{children}</AdminOnlyGuard>
+      {children}
     </main>
   );
 }

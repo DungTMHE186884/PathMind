@@ -47,6 +47,8 @@ AUTO_MOUNTED_TOOLS: frozenset[str] = frozenset(CONFIGURABLE_BUILTIN_TOOL_NAMES)
 _CONDITIONAL_MOUNT_FLAGS: dict[str, str] = {
     "rag": "has_kb",
     "kb_files": "has_kb",
+    "knowledge_tree": "has_knowledge_tree",
+    "knowledge_search": "has_knowledge_tree",
     "knowledge_frontier": "has_kb",
     "read_source": "has_sources",
     "read_memory": "has_memory",
@@ -149,6 +151,8 @@ class ToolMountFlags:
     """
 
     has_kb: bool = False
+    #: The admin has published at least one knowledge-tree node.
+    has_knowledge_tree: bool = False
     has_sources: bool = False
     has_memory: bool = False
     has_notebooks: bool = False
@@ -284,6 +288,18 @@ def _ordered_unique(names: Iterable[str]) -> list[str]:
     return result
 
 
+def user_has_knowledge_tree() -> bool:
+    """Whether any knowledge-tree node exists. Fails closed like the others."""
+    try:
+        from pathmind.database.connection import get_db_session
+        from pathmind.services.knowledge_tree import has_content
+
+        with get_db_session() as db:
+            return has_content(db)
+    except Exception:
+        return False
+
+
 def user_has_memory() -> bool:
     """Whether the active user has any L3 memory content.
 
@@ -379,6 +395,7 @@ __all__ = [
     "default_optional_tools",
     "partner_can_record_questions",
     "user_has_mastery_topics",
+    "user_has_knowledge_tree",
     "user_has_memory",
     "user_has_notebooks",
     "user_has_question_bank",

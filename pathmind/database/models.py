@@ -412,3 +412,88 @@ class FeatureUsage(Base):
     period = Column(String(7), nullable=False)  # "YYYY-MM" (UTC)
     count = Column(Integer, nullable=False, default=0)
     updated_at = Column(DateTime, default=datetime.utcnow)
+
+
+class MemorySharingConsent(Base):
+    """A person's opt-in to share anonymised memory aggregates with the server.
+
+    ``pseudo_id`` is random and exists only while consent does: it is the only
+    link between an account and its rows in ``memory_insights``. Withdrawing (or
+    deleting the account) deletes both, so the remaining aggregates cannot be
+    traced back to anyone.
+    """
+
+    __tablename__ = "memory_sharing_consent"
+
+    user_id = Column(String(36), primary_key=True)
+    pseudo_id = Column(String(32), nullable=False, unique=True)
+    consented_at = Column(DateTime, default=datetime.utcnow)
+    last_shared_at = Column(DateTime, nullable=True)
+
+
+class MemoryInsight(Base):
+    """One anonymised data point: a topic / preference tag or an activity count."""
+
+    __tablename__ = "memory_insights"
+    __table_args__ = (
+        UniqueConstraint("pseudo_id", "kind", "label", "period", name="uq_memory_insight"),
+    )
+
+    id = Column(String(36), primary_key=True, default=_gen_uuid)
+    pseudo_id = Column(String(32), nullable=False, index=True)
+    kind = Column(String(16), nullable=False)  # topic | preference | activity
+    label = Column(String(48), nullable=False)  # fixed vocabulary, never free text
+    period = Column(String(7), nullable=False)  # "YYYY-MM" (UTC)
+    count = Column(Integer, nullable=False, default=1)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+# ── Knowledge tree (curated by administrators, readable by everyone) ───────
+
+
+class KnowledgeDomain(Base):
+    """A subject area: the root of one knowledge tree."""
+
+    __tablename__ = "knowledge_domains"
+
+    id = Column(String(36), primary_key=True, default=_gen_uuid)
+    slug = Column(String(64), nullable=False, unique=True)
+    name = Column(String(120), nullable=False)
+    description = Column(Text, nullable=False, default="")
+    # Administrator's GraphRAG knowledge base published alongside this tree.
+    kb_name = Column(String(200), nullable=True)
+    created_by = Column(String(36), nullable=False, default="")
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow)
+
+
+class KnowledgeSource(Base):
+    """A raw file a tree was built from; nodes point back into its text."""
+
+    __tablename__ = "knowledge_sources"
+
+    id = Column(String(36), primary_key=True, default=_gen_uuid)
+    domain_id = Column(String(36), nullable=False, index=True)
+    filename = Column(String(255), nullable=False)
+    size = Column(Integer, nullable=False, default=0)
+    sha256 = Column(String(64), nullable=False, default="")
+    text = Column(Text, nullable=False, default="")
+    uploaded_by = Column(String(36), nullable=False, default="")
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class KnowledgeNode(Base):
+    """Topic (``parent_id`` null) or a node below it."""
+
+    __tablename__ = "knowledge_nodes"
+
+    id = Column(String(36), primary_key=True, default=_gen_uuid)
+    domain_id = Column(String(36), nullable=False, index=True)
+    parent_id = Column(String(36), nullable=True, index=True)
+    title = Column(String(200), nullable=False)
+    summary = Column(Text, nullable=False, default="")
+    position = Column(Integer, nullable=False, default=0)
+    refs = Column(JSON, nullable=False, default=list)  # [{source_id, start, end}]
+    version = Column(Integer, nullable=False, default=1)
+    updated_by = Column(String(36), nullable=False, default="")
+    updated_at = Column(DateTime, default=datetime.utcnow)

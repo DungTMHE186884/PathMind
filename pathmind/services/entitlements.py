@@ -5,6 +5,8 @@ Stored per plan in ``subscription_plans.entitlements`` (JSON, editable in
 
 ``community``         Community (forum + skill hub)
 ``space_extras``      Learning Space → Notebooks, Question Bank, Skills
+``courses``           Courses (study-course containers)
+``memory``            Memory workbench (view/edit the three memory layers, run AI consolidation)
 ``reading``           Personalized Learning → Reading
 ``watching``          Personalized Learning → Watching (video learning)
 ``max_skills``        own skills (created, uploaded, added from Community/EduHub)
@@ -35,7 +37,7 @@ from pathmind.services.i18n import t as _t
 
 logger = logging.getLogger(__name__)
 
-FEATURE_KEYS = ("community", "space_extras", "reading", "watching")
+FEATURE_KEYS = ("community", "space_extras", "courses", "memory", "reading", "watching")
 LIMIT_KEYS = ("max_skills", "max_partners", "mastery_per_month", "books_per_month")
 MONTHLY_KEYS = {"mastery_per_month": "mastery", "books_per_month": "books"}
 PERIODS = ("month", "lifetime")
@@ -43,6 +45,8 @@ PERIODS = ("month", "lifetime")
 UNLIMITED: dict[str, Any] = {
     "community": True,
     "space_extras": True,
+    "courses": True,
+    "memory": True,
     "reading": True,
     "watching": True,
     "max_skills": None,
@@ -55,6 +59,8 @@ UNLIMITED: dict[str, Any] = {
 FREE: dict[str, Any] = {
     "community": False,
     "space_extras": False,
+    "courses": False,
+    "memory": False,
     "reading": False,
     "watching": False,
     "max_skills": 0,
@@ -70,6 +76,8 @@ PLAN_DEFAULTS: dict[str, dict[str, Any]] = {
     "plus": {
         "community": True,
         "space_extras": True,
+        "courses": True,
+        "memory": True,
         "reading": True,
         "watching": True,
         "max_skills": 5,
@@ -81,6 +89,8 @@ PLAN_DEFAULTS: dict[str, dict[str, Any]] = {
     "pro": {
         "community": True,
         "space_extras": True,
+        "courses": True,
+        "memory": True,
         "reading": True,
         "watching": True,
         "max_skills": 20,
@@ -305,6 +315,17 @@ def community_guard(request: Request) -> None:
     if request.method == "GET" and _COMMUNITY_OPEN.match(request.url.path):
         return
     require_feature("community")
+
+
+# Courses: the list stays readable (it answers an empty list when locked) because
+# the chat composer and sidebars load it for everyone; everything else is gated.
+_COURSES_OPEN = re.compile(r"^/api/courses/?$")
+
+
+def courses_guard(request: Request) -> None:
+    if request.method == "GET" and _COURSES_OPEN.match(request.url.path):
+        return
+    require_feature("courses")
 
 
 def has_feature(feature: str, user: Any = None) -> bool:
@@ -549,6 +570,7 @@ __all__ = [
     "check_count_limit",
     "check_monthly",
     "check_skill_limit",
+    "courses_guard",
     "community_guard",
     "current_entitlements",
     "default_entitlements",
