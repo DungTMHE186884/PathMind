@@ -15,6 +15,8 @@ export interface AuthStatusState {
   authenticated: boolean;
   /** Whether the authenticated user is an admin. */
   isAdmin: boolean;
+  isRnd: boolean;
+  isEducator: boolean;
   /** Username of authenticated account */
   username: string | null;
   /** Stable account id for account-scoped browser state. */
@@ -29,6 +31,8 @@ const INITIAL: AuthStatusState = {
   enabled: false,
   authenticated: false,
   isAdmin: false,
+  isRnd: false,
+  isEducator: false,
   username: null,
   userId: null,
   statusAvailable: false,
@@ -55,6 +59,8 @@ function toState(status: AuthStatus | undefined): AuthStatusState {
       enabled: Boolean(status.enabled),
       authenticated: Boolean(status.authenticated),
       isAdmin: status.role === "admin",
+      isRnd: status.role === "rnd",
+      isEducator: status.role === "educator",
       username: status.username ?? null,
       userId:
         typeof status.user_id === "string" && status.user_id.trim()

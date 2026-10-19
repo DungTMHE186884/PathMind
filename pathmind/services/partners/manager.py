@@ -1279,19 +1279,6 @@ class PartnerManager:
         if self._rehomed_channel_state:
             return
         self._rehomed_channel_state = True
-        try:
-            from pathmind.services.partners.channel_state_migration import (
-                rehome_shared_channel_state,
-            )
-
-            candidates: dict[str, dict[str, Any]] = {}
-            for pid in self._discover_partner_ids():
-                cfg = self.load_config(pid)
-                if cfg and cfg.channels:
-                    candidates[pid] = cfg.channels
-            rehome_shared_channel_state(candidates)
-        except Exception:
-            logger.exception("Failed to rehome legacy channel state")
 
     # ── Legacy TutorBot migration ─────────────────────────────────
 

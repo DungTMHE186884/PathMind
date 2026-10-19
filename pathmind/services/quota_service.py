@@ -70,11 +70,11 @@ def usd_to_vnd_rate() -> int:
 
 def _is_admin(user_id: str, role: str | None, db: Session) -> bool:
     if role is not None:
-        return role == "admin"
+        return role in ("admin", "rnd")
     if user_id in ADMIN_IDS:
         return True
     user = db.get(User, user_id)
-    return bool(user and user.role == "admin")
+    return bool(user and user.role in ("admin", "rnd"))
 
 
 def _auth_store_lookup(user_id: str) -> dict | None:
@@ -119,7 +119,7 @@ def ensure_db_user(
         id=user_id,
         username=username,
         password_hash="managed-by-auth-store",
-        role=role if role in {"admin", "user"} else "user",
+        role=role if role in {"admin", "rnd", "educator", "user"} else "user",
     )
     db.add(user)
     db.commit()
@@ -413,6 +413,14 @@ def check_token_quota(
     plan = get_user_plan(user_id, db)
     day_limit = int(plan.max_tokens_per_day or 0)
     month_limit = int(plan.max_tokens_per_month or 0)
+    try:  # credits bought with reward points raise both limits until they expire
+        from pathmind.services.rewards import bonus_credits
+
+        bonus = bonus_credits(db, user_id)
+        day_limit += bonus
+        month_limit += bonus
+    except Exception:  # pragma: no cover
+        pass
     used_today = int(_usage_today(user_id, db)["credits"])
     used_month = int(_usage_month(user_id, db)["credits"])
 

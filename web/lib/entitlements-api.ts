@@ -7,7 +7,8 @@ export type PlanFeature =
   | "courses"
   | "memory"
   | "reading"
-  | "watching";
+  | "watching"
+  | "contribute";
 /** Numeric allowances; ``null`` = unlimited, ``0`` = not on this plan. */
 export type PlanLimit =
   | "max_skills"
@@ -47,6 +48,7 @@ export const PLAN_FEATURES: PlanFeature[] = [
   "memory",
   "reading",
   "watching",
+  "contribute",
 ];
 export const PLAN_LIMITS: PlanLimit[] = [
   "max_skills",

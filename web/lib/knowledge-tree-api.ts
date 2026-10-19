@@ -109,3 +109,71 @@ export interface AskResult {
 }
 export const askKnowledge = (query: string, domainId?: string | null) =>
   call<AskResult>("/ask", json("POST", { query, domain_id: domainId ?? null }));
+
+// ── R&D document store, tree export/import, audit trail ──
+export interface StoreDocument {
+  id: string;
+  domain_id: string;
+  domain_name: string;
+  filename: string;
+  size: number;
+  downloadable: boolean;
+  uploaded_by: string;
+  created_at: string | null;
+}
+export interface AuditEntry {
+  id?: string;
+  actor_id: string;
+  action: string;
+  target_type: string;
+  target_id: string;
+  data: Record<string, unknown>;
+  created_at: string | null;
+}
+export const listDocuments = (domainId?: string) =>
+  call<{ documents: StoreDocument[] }>(
+    `/documents${domainId ? `?domain_id=${encodeURIComponent(domainId)}` : ""}`,
+  ).then((r) => r.documents);
+export function uploadDocument(domainId: string, file: File) {
+  const form = new FormData();
+  form.append("file", file);
+  return call<StoreDocument>(`/domains/${domainId}/documents`, { method: "POST", body: form });
+}
+export const deleteDocument = (id: string) =>
+  call<{ ok: boolean }>(`/documents/${id}`, { method: "DELETE" });
+export const listAudit = (prefix = "store.") =>
+  call<{ entries: AuditEntry[] }>(`/audit?action_prefix=${encodeURIComponent(prefix)}`).then(
+    (r) => r.entries,
+  );
+
+async function saveBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+export async function downloadDocument(doc: StoreDocument) {
+  const res = await apiFetch(apiUrl(`${BASE}/documents/${doc.id}/download`));
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  await saveBlob(await res.blob(), doc.filename);
+}
+export async function exportTree(domainId: string, name: string) {
+  const data = await call<unknown>(`/domains/${domainId}/export`);
+  await saveBlob(
+    new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }),
+    `${name.replace(/[^\w.-]+/g, "_") || "tree"}.pathmind-tree.json`,
+  );
+}
+export function importTree(file: File, name = "") {
+  const form = new FormData();
+  form.append("file", file);
+  form.append("name", name);
+  return call<{ domain_id: string; name: string; nodes: number }>("/domains/import-tree", {
+    method: "POST",
+    body: form,
+  });
+}

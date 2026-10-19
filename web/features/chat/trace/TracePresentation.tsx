@@ -565,8 +565,6 @@ function renderNiceToolArgs(
 const PROVIDER_LABELS: Record<string, string> = {
   lightrag: "LightRAG",
   raganything: "RAGAnything",
-  pageindex: "PageIndex",
-  llamaindex: "LlamaIndex",
   graphrag: "GraphRAG",
   duckduckgo: "DuckDuckGo",
   ddg: "DuckDuckGo",

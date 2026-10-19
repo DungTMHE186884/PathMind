@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
 
-Role = Literal["admin", "user"]
+Role = Literal["admin", "rnd", "educator", "user"]
 AccountPreset = Literal["standard", "learner", "custom"]
 ScopeKind = Literal["admin", "user"]
 
@@ -62,12 +62,22 @@ class CurrentUser:
     def is_admin(self) -> bool:
         return self.role == "admin"
 
+    @property
+    def is_rnd(self) -> bool:
+        return self.role == "rnd"
+
+    @property
+    def is_educator(self) -> bool:
+        return self.role == "educator"
+
     def public_dict(self) -> dict[str, Any]:
         return {
             "id": self.id,
             "username": self.username,
             "role": self.role,
             "is_admin": self.is_admin,
+            "is_rnd": self.is_rnd,
+            "is_educator": self.is_educator,
         }
 
 

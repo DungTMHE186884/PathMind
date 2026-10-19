@@ -1,6 +1,5 @@
 import { apiFetch, apiUrl as baseApiUrl } from "@/lib/api";
 import { invalidateClientCache, withClientCache } from "@/lib/client-cache";
-import type { ImaKnowledgeBaseOption } from "@/lib/ima-connection";
 
 function inKnowledgeLibrary(): boolean {
   return typeof window !== "undefined" && /^\/knowledge-bases(?:\/|$)/.test(window.location.pathname);
@@ -68,47 +67,13 @@ export interface RagProviderSummary {
   modes?: string[];
   /** The active default retrieval mode for this engine. */
   default_mode?: string;
+  /** False when the caller's role may not create a new KB with this engine
+   *  (GraphRAG is reserved for the main tree, curated by R&D and admins). */
+  selectable?: boolean;
   /** Whether an existing index for this engine can be linked in place. */
   linkable?: boolean;
   /** The engine works, but reusable defaults have not been configured yet. */
   setup_required?: boolean;
-}
-
-export interface PageIndexConfig {
-  api_key_set: boolean;
-  configured: boolean;
-}
-
-/** Account-level Tencent IMA credentials, shared by every `ima` KB. */
-export interface ImaAccountConfig {
-  client_id: string;
-  api_key_set: boolean;
-  configured: boolean;
-}
-
-export interface LlamaIndexConfig {
-  version: number;
-  /** "hybrid" (BM25 + vector fusion) or "vector" only. */
-  retrieval_profile: "hybrid" | "vector";
-  /** Default number of chunks a query returns. */
-  top_k: number;
-  vector_top_k_multiplier: number;
-  bm25_top_k_multiplier: number;
-  /** Optional Hugging Face cross-encoder model; empty disables reranking. */
-  reranker_model: string;
-  /** First-stage candidates scored by the optional cross-encoder. */
-  rerank_top_k: number;
-  /** Vector index type used by the next full index build. */
-  vector_index_type: "flat" | "hnsw";
-  hnsw_m: number;
-  hnsw_ef_construction: number;
-  hnsw_ef_search: number;
-  /** Chunk geometry — applies to documents indexed after the change. */
-  chunk_size: number;
-  chunk_overlap: number;
-  /** Bounded multimodal LLM work during image-heavy indexing. */
-  image_description_concurrency: number;
-  image_description_timeout_seconds: number;
 }
 
 export interface GraphRagConfig {
@@ -131,12 +96,6 @@ export interface LightRagConfig {
   /** Query model and default indexing selection; empty uses the active chat model. */
   llm_profile_id: string;
   llm_model_id: string;
-}
-
-export interface LightRagServerConfig {
-  server_url: string;
-  api_key_set: boolean;
-  configured: boolean;
 }
 
 export interface PreflightCheck {
@@ -333,130 +292,6 @@ export function invalidateKnowledgeCaches() {
   invalidateClientCache(KNOWLEDGE_CACHE_PREFIX);
 }
 
-const PAGEINDEX_CONFIG_PATH =
-  "/api/knowledge-bases/rag-pipelines/pageindex/config";
-
-export async function getPageIndexConfig(options?: {
-  force?: boolean;
-}): Promise<PageIndexConfig> {
-  return withClientCache<PageIndexConfig>(
-    `${KNOWLEDGE_CACHE_PREFIX}pageindex-config`,
-    async () => {
-      const response = await apiFetch(apiUrl(PAGEINDEX_CONFIG_PATH), {
-        cache: "no-store",
-      });
-      if (!response.ok) {
-        throw new Error(
-          await readErrorDetail(response, "Failed to read PageIndex config"),
-        );
-      }
-      return (await response.json()) as PageIndexConfig;
-    },
-    { force: options?.force, ttlMs: 15_000 },
-  );
-}
-
-export async function updatePageIndexConfig(payload: {
-  /** Omit to keep the stored key, "" to clear it, any value to replace it. */
-  api_key?: string;
-}): Promise<PageIndexConfig> {
-  const res = await apiFetch(apiUrl(PAGEINDEX_CONFIG_PATH), {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-  if (!res.ok) {
-    throw new Error(
-      await readErrorDetail(res, "Failed to update PageIndex config"),
-    );
-  }
-  // The provider list's `configured` flag depends on this; refresh it.
-  invalidateKnowledgeCaches();
-  return (await res.json()) as PageIndexConfig;
-}
-
-const IMA_CONFIG_PATH = "/api/knowledge-bases/rag-pipelines/ima/config";
-
-export async function getImaConfig(options?: {
-  force?: boolean;
-}): Promise<ImaAccountConfig> {
-  return withClientCache<ImaAccountConfig>(
-    `${KNOWLEDGE_CACHE_PREFIX}ima-config`,
-    async () => {
-      const response = await apiFetch(apiUrl(IMA_CONFIG_PATH), {
-        cache: "no-store",
-      });
-      if (!response.ok) {
-        throw new Error(
-          await readErrorDetail(response, "Failed to read Tencent IMA config"),
-        );
-      }
-      return (await response.json()) as ImaAccountConfig;
-    },
-    { force: options?.force, ttlMs: 15_000 },
-  );
-}
-
-export async function updateImaConfig(payload: {
-  client_id?: string;
-  /** Omit to keep the stored key, "" to clear it, any value to replace it. */
-  api_key?: string;
-}): Promise<ImaAccountConfig> {
-  const res = await apiFetch(apiUrl(IMA_CONFIG_PATH), {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-  if (!res.ok) {
-    throw new Error(
-      await readErrorDetail(res, "Failed to update Tencent IMA config"),
-    );
-  }
-  // The provider list's `configured` flag depends on this; refresh it.
-  invalidateKnowledgeCaches();
-  return (await res.json()) as ImaAccountConfig;
-}
-
-const LLAMAINDEX_CONFIG_PATH =
-  "/api/knowledge-bases/rag-pipelines/llamaindex/config";
-
-export async function getLlamaIndexConfig(options?: {
-  force?: boolean;
-}): Promise<LlamaIndexConfig> {
-  return withClientCache<LlamaIndexConfig>(
-    `${KNOWLEDGE_CACHE_PREFIX}llamaindex-config`,
-    async () => {
-      const response = await apiFetch(apiUrl(LLAMAINDEX_CONFIG_PATH), {
-        cache: "no-store",
-      });
-      if (!response.ok) {
-        throw new Error(
-          await readErrorDetail(response, "Failed to read LlamaIndex config"),
-        );
-      }
-      return (await response.json()) as LlamaIndexConfig;
-    },
-    { force: options?.force, ttlMs: 15_000 },
-  );
-}
-
-export async function updateLlamaIndexConfig(
-  payload: Partial<Omit<LlamaIndexConfig, "version">>,
-): Promise<LlamaIndexConfig> {
-  const res = await apiFetch(apiUrl(LLAMAINDEX_CONFIG_PATH), {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-  if (!res.ok) {
-    throw new Error(
-      await readErrorDetail(res, "Failed to update LlamaIndex config"),
-    );
-  }
-  invalidateKnowledgeCaches();
-  return (await res.json()) as LlamaIndexConfig;
-}
-
 async function getEngineConfig<T>(
   provider: string,
   cacheKey: string,
@@ -512,19 +347,6 @@ export const getLightRagConfig = (options?: { force?: boolean }) =>
 export const updateLightRagConfig = (
   payload: Partial<Omit<LightRagConfig, "version">>,
 ) => updateEngineConfig<LightRagConfig>("lightrag", payload);
-
-export const getLightRagServerConfig = (options?: { force?: boolean }) =>
-  getEngineConfig<LightRagServerConfig>(
-    "lightrag-server",
-    "lightrag-server-config",
-    options,
-  );
-
-export const updateLightRagServerConfig = (payload: {
-  server_url?: string;
-  /** Omit to keep the stored key; empty clears it. */
-  api_key?: string;
-}) => updateEngineConfig<LightRagServerConfig>("lightrag-server", payload);
 
 export async function getEnginePreflight(
   provider: string,
@@ -717,7 +539,6 @@ export async function createKnowledgeBase(payload: {
   name: string;
   provider: string;
   files: File[];
-  pageindexMode?: "flash" | "standard";
   searchMode?: string;
   indexingLLM?: IndexingLLMSelection;
   embeddingModel?: EmbeddingModelSelection;
@@ -725,9 +546,6 @@ export async function createKnowledgeBase(payload: {
   const form = new FormData();
   form.append("name", payload.name);
   form.append("rag_provider", payload.provider);
-  if (payload.pageindexMode) {
-    form.append("pageindex_mode", payload.pageindexMode);
-  }
   if (payload.searchMode) form.append("search_mode", payload.searchMode);
   if (payload.embeddingModel)
     form.append("embedding_model", JSON.stringify(payload.embeddingModel));
@@ -868,252 +686,6 @@ export async function connectLinkedFolder(payload: {
     external_path: string;
     rag_provider: string;
     warnings: string[];
-  };
-}
-
-export interface LightRagServerProbe {
-  /** Reachable, a LightRAG server, and (if required) the API key is accepted. */
-  ok: boolean;
-  base_url: string;
-  reachable: boolean;
-  auth_required: boolean;
-  auth_ok: boolean;
-  core_version: string | null;
-  api_version: string | null;
-  /** Set when the server can't be connected (unreachable, bad key, …). */
-  error: string | null;
-}
-
-export interface WeKnoraProbe {
-  ok: boolean;
-  base_url: string;
-  knowledge_base_id: string;
-  reachable: boolean;
-  credentials_ok: boolean;
-  knowledge_base_found: boolean;
-  knowledge_base_name: string | null;
-  error: string | null;
-}
-
-export interface ImaKnowledgeBasePage {
-  knowledge_bases: ImaKnowledgeBaseOption[];
-  next_cursor: string;
-  is_end: boolean;
-}
-
-export interface ImaProbe {
-  knowledge_base_id: string;
-  ok: boolean;
-  credentials_ok: boolean;
-  knowledge_base_name: string | null;
-  description: string | null;
-  error: string | null;
-}
-
-export async function listImaKnowledgeBases(payload: {
-  /** Empty falls back to the account credentials stored on the engine page. */
-  clientId?: string;
-  apiKey?: string;
-  cursor?: string;
-  limit?: number;
-}): Promise<ImaKnowledgeBasePage> {
-  const res = await apiFetch(apiUrl("/api/knowledge-bases/list-ima"), {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      client_id: payload.clientId ?? "",
-      api_key: payload.apiKey ?? "",
-      cursor: payload.cursor ?? "",
-      limit: payload.limit ?? 20,
-    }),
-    skipAuthRedirect: true,
-  });
-  if (!res.ok) {
-    throw new Error(
-      await readErrorDetail(res, "Failed to read Tencent IMA knowledge bases"),
-    );
-  }
-  return (await res.json()) as ImaKnowledgeBasePage;
-}
-
-export async function probeImaKnowledgeBase(payload: {
-  clientId?: string;
-  apiKey?: string;
-  knowledgeBaseId: string;
-}): Promise<ImaProbe> {
-  const res = await apiFetch(apiUrl("/api/knowledge-bases/probe-ima"), {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      client_id: payload.clientId ?? "",
-      api_key: payload.apiKey ?? "",
-      knowledge_base_id: payload.knowledgeBaseId,
-    }),
-    skipAuthRedirect: true,
-  });
-  if (!res.ok) {
-    throw new Error(
-      await readErrorDetail(res, "Failed to verify Tencent IMA knowledge base"),
-    );
-  }
-  return (await res.json()) as ImaProbe;
-}
-
-export async function connectImaKnowledgeBase(payload: {
-  name: string;
-  /** Empty binds the KB to the account credentials instead of pinning a copy. */
-  clientId?: string;
-  apiKey?: string;
-  knowledgeBaseId: string;
-}): Promise<{
-  status: string;
-  name: string;
-  knowledge_base_id: string;
-  rag_provider: string;
-}> {
-  const res = await apiFetch(apiUrl("/api/knowledge-bases/connect-ima"), {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      name: payload.name,
-      client_id: payload.clientId ?? "",
-      api_key: payload.apiKey ?? "",
-      knowledge_base_id: payload.knowledgeBaseId,
-    }),
-    skipAuthRedirect: true,
-  });
-  if (!res.ok) {
-    throw new Error(
-      await readErrorDetail(
-        res,
-        "Failed to connect Tencent IMA knowledge base",
-      ),
-    );
-  }
-  invalidateKnowledgeCaches();
-  return (await res.json()) as {
-    status: string;
-    name: string;
-    knowledge_base_id: string;
-    rag_provider: string;
-  };
-}
-
-export async function probeLightRagServer(payload: {
-  serverUrl: string;
-  apiKey?: string;
-  useSavedApiKey?: boolean;
-}): Promise<LightRagServerProbe> {
-  const res = await apiFetch(
-    apiUrl("/api/knowledge-bases/probe-lightrag-server"),
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        server_url: payload.serverUrl,
-        api_key: payload.apiKey ?? "",
-        use_saved_api_key: payload.useSavedApiKey ?? false,
-      }),
-    },
-  );
-  if (!res.ok) {
-    throw new Error(
-      await readErrorDetail(res, "Failed to reach LightRAG server"),
-    );
-  }
-  return (await res.json()) as LightRagServerProbe;
-}
-
-export async function connectLightRagServer(payload: {
-  name: string;
-  serverUrl: string;
-  apiKey?: string;
-  mode?: string;
-}): Promise<{
-  status: string;
-  name: string;
-  server_url: string;
-  rag_provider: string;
-}> {
-  const res = await apiFetch(
-    apiUrl("/api/knowledge-bases/connect-lightrag-server"),
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        name: payload.name,
-        server_url: payload.serverUrl,
-        api_key: payload.apiKey ?? "",
-        search_mode: payload.mode ?? "",
-      }),
-    },
-  );
-  if (!res.ok) {
-    throw new Error(
-      await readErrorDetail(res, "Failed to connect LightRAG server"),
-    );
-  }
-  invalidateKnowledgeCaches();
-  return (await res.json()) as {
-    status: string;
-    name: string;
-    server_url: string;
-    rag_provider: string;
-  };
-}
-
-export async function probeWeKnora(payload: {
-  serverUrl: string;
-  apiKey: string;
-  knowledgeBaseId: string;
-}): Promise<WeKnoraProbe> {
-  const res = await apiFetch(apiUrl("/api/knowledge-bases/probe-weknora"), {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      server_url: payload.serverUrl,
-      api_key: payload.apiKey,
-      knowledge_base_id: payload.knowledgeBaseId,
-    }),
-  });
-  if (!res.ok) {
-    throw new Error(await readErrorDetail(res, "Failed to reach WeKnora"));
-  }
-  return (await res.json()) as WeKnoraProbe;
-}
-
-export async function connectWeKnora(payload: {
-  name: string;
-  serverUrl: string;
-  apiKey: string;
-  knowledgeBaseId: string;
-}): Promise<{
-  status: string;
-  name: string;
-  server_url: string;
-  knowledge_base_id: string;
-  rag_provider: string;
-}> {
-  const res = await apiFetch(apiUrl("/api/knowledge-bases/connect-weknora"), {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      name: payload.name,
-      server_url: payload.serverUrl,
-      api_key: payload.apiKey,
-      knowledge_base_id: payload.knowledgeBaseId,
-    }),
-  });
-  if (!res.ok) {
-    throw new Error(await readErrorDetail(res, "Failed to connect WeKnora"));
-  }
-  invalidateKnowledgeCaches();
-  return (await res.json()) as {
-    status: string;
-    name: string;
-    server_url: string;
-    knowledge_base_id: string;
-    rag_provider: string;
   };
 }
 

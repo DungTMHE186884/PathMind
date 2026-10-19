@@ -1,4 +1,4 @@
-"""Knowledge tree API. Everyone signed in reads; only administrators change it.
+"""Knowledge tree API. The main tree is hidden: only R&D and administrators read or change it.
 
 See ``services.knowledge_tree``.
 """
@@ -7,12 +7,13 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, UploadFile
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from pathmind.database.connection import get_db
 from pathmind.multi_user.context import get_current_user
+from pathmind.services import audit
 from pathmind.services import knowledge_tree as kt
 
 router = APIRouter()
@@ -21,6 +22,12 @@ router = APIRouter()
 def _who():
     u = get_current_user()
     return str(u.id or ""), str(u.username or ""), str(u.role or "user")
+
+
+def _require_view() -> None:
+    _, _, role = _who()
+    if not kt.can_edit(role):
+        raise HTTPException(status_code=403, detail="The main knowledge tree is only visible to R&D.")
 
 
 def _run(fn, *args, **kwargs):
@@ -69,6 +76,7 @@ def my_rights():
 
 @router.get("/domains")
 def list_domains(db: Session = Depends(get_db)):
+    _require_view()
     return {"domains": kt.domain_summaries(db)}
 
 
@@ -84,7 +92,7 @@ def kb_options():
     """Administrator's GraphRAG knowledge bases a domain can be linked to."""
     _, _, role = _who()
     if not kt.can_edit(role):
-        raise HTTPException(status_code=403, detail="Only administrators can link knowledge bases.")
+        raise HTTPException(status_code=403, detail="Only R&D or administrators can link knowledge bases.")
     return {"knowledge_bases": kt.admin_kb_names()}
 
 
@@ -108,6 +116,7 @@ def remove_domain(domain_id: str, db: Session = Depends(get_db)):
 
 @router.get("/domains/{domain_id}/tree")
 def get_tree(domain_id: str, db: Session = Depends(get_db)):
+    _require_view()
     return _run(kt.tree_of, db, domain_id)
 
 
@@ -144,6 +153,7 @@ def add_node(domain_id: str, body: NodeBody, db: Session = Depends(get_db)):
 
 @router.get("/nodes/{node_id}")
 def get_node(node_id: str, db: Session = Depends(get_db)):
+    _require_view()
     return _run(kt.node_detail, db, node_id)
 
 
@@ -169,18 +179,84 @@ def remove_node(node_id: str, db: Session = Depends(get_db)):
 
 @router.get("/search")
 def search(q: str, db: Session = Depends(get_db)):
+    _require_view()
     return {"results": kt.search_nodes(db, q)}
 
 
 @router.post("/ask")
 async def ask(body: AskBody) -> dict[str, Any]:
-    """Run the unified tree + GraphRAG retrieval (administrators: to test the setup)."""
+    """Run the unified tree + GraphRAG retrieval (R&D and administrators: to test the setup)."""
     from pathmind.services.knowledge_tree.unified import knowledge_search
 
     _, _, role = _who()
     if not kt.can_edit(role):
-        raise HTTPException(status_code=403, detail="Only administrators can test retrieval.")
+        raise HTTPException(status_code=403, detail="Only R&D or administrators can test retrieval.")
     try:
         return await knowledge_search(body.query, domain_id=body.domain_id)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+
+
+# ── R&D document store, tree export/import, audit trail ──────────────────
+
+MAX_UPLOAD = 25 * 1024 * 1024
+
+
+async def _read_limited(file: UploadFile) -> bytes:
+    data = await file.read(MAX_UPLOAD + 1)
+    if len(data) > MAX_UPLOAD:
+        raise HTTPException(status_code=413, detail="File is larger than 25 MB.")
+    return data
+
+
+@router.get("/documents")
+def list_documents(domain_id: str | None = None, db: Session = Depends(get_db)):
+    _, _, role = _who()
+    return {"documents": _run(kt.store.list_documents, db, role, domain_id)}
+
+
+@router.post("/domains/{domain_id}/documents")
+async def upload_document(domain_id: str, file: UploadFile = File(...), db: Session = Depends(get_db)):
+    uid, _, role = _who()
+    data = await _read_limited(file)
+    return _run(
+        kt.store.upload_document, db, role, uid,
+        domain_id=domain_id, filename=file.filename or "file", data=data,
+    )
+
+
+@router.get("/documents/{document_id}/download")
+def download_document(document_id: str, db: Session = Depends(get_db)):
+    uid, _, role = _who()
+    data, ctype, name = _run(kt.store.read_document, db, role, uid, document_id)
+    safe = name.replace('"', "")
+    return Response(
+        content=data, media_type=ctype,
+        headers={"Content-Disposition": f'attachment; filename="{safe}"'},
+    )
+
+
+@router.delete("/documents/{document_id}")
+def delete_document(document_id: str, db: Session = Depends(get_db)):
+    uid, _, role = _who()
+    _run(kt.store.delete_document, db, role, uid, document_id)
+    return {"ok": True}
+
+
+@router.get("/domains/{domain_id}/export")
+def export_tree(domain_id: str, db: Session = Depends(get_db)):
+    uid, _, role = _who()
+    return _run(kt.store.export_tree, db, role, uid, domain_id)
+
+
+@router.post("/domains/import-tree")
+async def import_tree(file: UploadFile = File(...), name: str = Form(""), db: Session = Depends(get_db)):
+    uid, _, role = _who()
+    data = await _read_limited(file)
+    return _run(kt.store.import_tree, db, role, uid, data, name=name.strip() or None)
+
+
+@router.get("/audit")
+def audit_log(action_prefix: str = "", limit: int = 100, db: Session = Depends(get_db)):
+    _require_view()
+    return {"entries": audit.list_recent(db, limit=max(1, min(limit, 500)), action_prefix=action_prefix)}

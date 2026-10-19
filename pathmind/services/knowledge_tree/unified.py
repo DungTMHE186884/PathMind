@@ -105,6 +105,25 @@ async def knowledge_search(
                 for d in sorted(domains.values(), key=lambda d: d.name):
                     want(d.kb_name)
         focus = list(dict.fromkeys(h["title"] for h in hits))[:5]
+        # Personal overlay (hidden from the learner): supplements, never overrides.
+        personal_blocks: list[str] = []
+        personal_sources: list[dict[str, Any]] = []
+        try:
+            from pathmind.multi_user.context import get_current_user
+            from pathmind.services.knowledge_branch import overlay
+
+            uid = str(get_current_user().id or "")
+            main_titles = {h["title"].strip().lower() for h in hits}
+            for p in overlay.search(db, uid, query, limit=3) if uid else []:
+                if p["title"].strip().lower() in main_titles:
+                    continue  # main tree wins on conflict
+                personal_blocks.append(f"### {p['title']}\n{p['summary']}".strip())
+                personal_sources.append(
+                    {"type": "personal_branch", "title": p["title"], "node_id": p["id"],
+                     "source": p.get("source_doc") or "personal notes"}
+                )
+        except Exception:  # noqa: BLE001 - overlay is optional
+            pass
 
     notes: list[str] = []
     graph_results: list[dict[str, Any]] = []
@@ -133,6 +152,8 @@ async def knowledge_search(
     parts: list[str] = []
     if tree_blocks:
         parts.append("## Curated knowledge tree\n\n" + "\n\n".join(tree_blocks))
+    if personal_blocks:
+        parts.append("## Personal notes (supplementary; the curated tree wins on conflict)\n\n" + "\n\n".join(personal_blocks))
     for g in graph_results:
         if g["answer"]:
             parts.append(f"## GraphRAG ({g['kb_name']})\n\n{g['answer']}")
@@ -143,6 +164,6 @@ async def knowledge_search(
         "content": "\n\n".join(parts) if parts else "Nothing found.",
         "scope": [{k: h[k] for k in ("id", "title", "domain", "path", "score")} for h in hits],
         "graph": graph_results,
-        "sources": [*tree_sources, *graph_sources],
+        "sources": [*tree_sources, *personal_sources, *graph_sources],
         "notes": notes,
     }

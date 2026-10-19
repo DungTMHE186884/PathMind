@@ -47,8 +47,6 @@ def _group_key(tool: BaseTool) -> tuple[str, str]:
     kind, provider_id = provider_identity(tool)
     if kind == "cli":
         return _CLI_GROUP
-    if kind == "pageindex":
-        return ("pageindex", provider_id)
     if provider_id:
         return ("mcp", provider_id)
     return _OTHER_GROUP
@@ -98,9 +96,6 @@ def render_deferred_tools_manifest(tools: list[BaseTool], *, language: str = "en
         _kind, provider_id = group
         if group == _CLI_GROUP:
             header = "### CLI 应用" if zh else "### CLI apps"
-        elif group[0] == "pageindex":
-            mode = "Cloud" if provider_id == "pageindex" else "OSS"
-            header = f"### PageIndex {mode}"
         elif group == _OTHER_GROUP:
             header = "### 其他" if zh else "### Other"
         else:
@@ -194,7 +189,7 @@ class DeferredToolLoader:
 
     def _persist(self) -> None:
         try:
-            from pathmind.services.mcp.session_state import record_loaded_tools
+            from pathmind.runtime.registry.session_state import record_loaded_tools
 
             record_loaded_tools(self._session_id, self._loaded)
         except Exception:

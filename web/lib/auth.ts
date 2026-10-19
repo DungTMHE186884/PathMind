@@ -310,6 +310,10 @@ export interface SignupPayload {
   password: string;
   confirm_password: string;
   accept_terms: boolean;
+  /** "user" (learner, default) or "educator" — no approval needed. */
+  role?: "user" | "educator";
+  /** Signed R&D invitation token from the invitation email. */
+  invite?: string;
 }
 
 export interface SignupResult {
@@ -458,5 +462,43 @@ export async function logout(): Promise<void> {
     // default instead of showing the previous user's choice.
     setTheme(DEFAULT_THEME);
     clearStoredTheme();
+  }
+}
+
+/** Ask for a password-reset email. Always resolves ok (the server never reveals if the address exists). */
+export async function requestPasswordReset(email: string): Promise<boolean> {
+  try {
+    const res = await apiFetch(apiUrl("/api/auth/password/forgot"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email }),
+      skipAuthRedirect: true,
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+export async function resetPassword(token: string, password: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    const res = await apiFetch(apiUrl("/api/auth/password/reset"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token, password }),
+      skipAuthRedirect: true,
+    });
+    if (res.ok) return { ok: true };
+    const data = (await res.json().catch(() => ({}))) as { detail?: unknown };
+    const d = data.detail;
+    const msg =
+      typeof d === "string"
+        ? d
+        : d && typeof d === "object" && "message" in d
+          ? String((d as { message: unknown }).message)
+          : "Could not reset the password";
+    return { ok: false, error: msg };
+  } catch {
+    return { ok: false, error: "Could not reach the server" };
   }
 }

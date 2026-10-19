@@ -1,29 +1,18 @@
 """RAG pipeline factory.
 
-Selects a KB's index/retrieve engine by provider name. Three pipelines ship
-today:
+Selects a KB's index/retrieve engine by provider name. Two pipelines ship (D2):
 
-* ``llamaindex`` (default) — local vector retrieval with hybrid BM25 fusion.
-* ``pageindex``           — PageIndex Cloud (deployment credential + MCP tools).
-* ``pageindex-oss``       — local PageIndex library using the active chat LLM.
-* ``graphrag``            — local knowledge-graph retrieval (microsoft/graphrag);
-                            optional dependency, ``pip install 'pathmind[graphrag]'``.
-* ``lightrag``            — graph + vector retrieval (HKUDS/LightRAG, multimodal
-                            via the LightRAG native pipeline); optional dependency,
-                            ``pip install 'pathmind[rag-lightrag]'``.
-* ``lightrag-server``     — retrieval offloaded to an external, standalone
-                            LightRAG server the user runs. No local index: each
-                            KB is a connection pointer queried over HTTP.
-* ``ima``                 — retrieval offloaded to a Tencent IMA knowledge base
-                            the user curates in IMA. No local index: each KB is
-                            a connection pointer queried over IMA's OpenAPI.
-* ``weknora``             — retrieval offloaded to a knowledge base in a
-                            self-hosted Tencent WeKnora deployment. No local
-                            index or document copy; each KB is a connection
-                            pointer queried over WeKnora's REST API.
+* ``graphrag`` — local knowledge-graph retrieval (microsoft/graphrag) for the
+                 curated main tree; optional dependency
+                 ``pip install 'pathmind[graphrag]'``.
+* ``lightrag`` — graph + vector retrieval (HKUDS/LightRAG, multimodal) for
+                 documents users add over time; optional dependency
+                 ``pip install 'pathmind[rag-lightrag]'``.
 
 A KB is bound to one provider at creation time; later adds and retrieval always
 go through that same pipeline (enforced upstream in the knowledge router).
+Knowledge bases created with a retired engine are treated as ``lightrag`` KBs
+that need a re-index.
 """
 
 from __future__ import annotations
@@ -31,29 +20,24 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-DEFAULT_PROVIDER = "llamaindex"
-PAGEINDEX_PROVIDER = "pageindex"
-PAGEINDEX_OSS_PROVIDER = "pageindex-oss"
+DEFAULT_PROVIDER = "lightrag"
 GRAPHRAG_PROVIDER = "graphrag"
 LIGHTRAG_PROVIDER = "lightrag"
-LIGHTRAG_SERVER_PROVIDER = "lightrag-server"
-IMA_PROVIDER = "ima"
-WEKNORA_PROVIDER = "weknora"
 
-# Providers the factory can instantiate. Unknown / legacy strings fall back to
-# the default with a re-index hint upstream.
-KNOWN_PROVIDERS = frozenset(
-    {
-        DEFAULT_PROVIDER,
-        PAGEINDEX_PROVIDER,
-        PAGEINDEX_OSS_PROVIDER,
-        GRAPHRAG_PROVIDER,
-        LIGHTRAG_PROVIDER,
-        LIGHTRAG_SERVER_PROVIDER,
-        IMA_PROVIDER,
-        WEKNORA_PROVIDER,
-    }
-)
+# Providers the factory can instantiate. Unknown / retired strings fall back to
+# the default (LightRAG) with a re-index hint upstream.
+KNOWN_PROVIDERS = frozenset({GRAPHRAG_PROVIDER, LIGHTRAG_PROVIDER})
+
+# D2 (graph retrieval only): these are the only engines a *new* knowledge base may use.
+# GraphRAG serves the curated main tree (global, community-level answers); LightRAG
+# serves documents users add over time (cheaper incremental indexing, multimodal).
+NEW_KB_PROVIDERS = (GRAPHRAG_PROVIDER, LIGHTRAG_PROVIDER)
+
+
+def default_provider_for_role(role: Optional[str]) -> str:
+    """GraphRAG for R&D/administrators (main tree); LightRAG for everyone else."""
+    return GRAPHRAG_PROVIDER if str(role or "") in {"admin", "rnd"} else LIGHTRAG_PROVIDER
+
 
 # Cached pipeline instances keyed by (kb_base_dir, provider).
 _PIPELINE_CACHE: Dict[Tuple[Optional[str], str], Any] = {}
@@ -72,13 +56,10 @@ def normalize_provider_name(name: Optional[str] = None) -> str:
 def provider_uses_embedding_versions(provider: Optional[str]) -> bool:
     """Whether this provider's index versions are keyed by embedding signature.
 
-    Today only the LlamaIndex pipeline uses PathMind's active embedding
-    signature to select/read index versions. PageIndex, GraphRAG and LightRAG
-    write synthetic provider signatures (``pageindex``/``graphrag``/``lightrag``)
-    and should not be marked stale merely because the active embedding profile
-    changed.
+    GraphRAG and LightRAG write synthetic provider signatures and are not marked
+    stale merely because the active embedding profile changed.
     """
-    return normalize_provider_name(provider) == DEFAULT_PROVIDER
+    return False
 
 
 def version_matches_provider(entry: dict[str, Any], provider: Optional[str]) -> bool:
@@ -86,18 +67,6 @@ def version_matches_provider(entry: dict[str, Any], provider: Optional[str]) -> 
     resolved = normalize_provider_name(provider)
     entry_provider = str(entry.get("provider") or "").strip().lower()
     signature = str(entry.get("signature") or "").strip().lower()
-
-    if resolved == DEFAULT_PROVIDER:
-        return entry_provider in {"", DEFAULT_PROVIDER} and signature not in {
-            PAGEINDEX_PROVIDER,
-            PAGEINDEX_OSS_PROVIDER,
-            GRAPHRAG_PROVIDER,
-            LIGHTRAG_PROVIDER,
-            LIGHTRAG_SERVER_PROVIDER,
-            IMA_PROVIDER,
-            WEKNORA_PROVIDER,
-        }
-
     return entry_provider == resolved or signature == resolved
 
 
@@ -128,53 +97,16 @@ def provider_failure_summary(
 
 
 def _build_pipeline(provider: str, kb_base_dir: Optional[str], **kwargs: Any):
-    if provider in {PAGEINDEX_PROVIDER, PAGEINDEX_OSS_PROVIDER}:
-        from .pipelines.pageindex.pipeline import PageIndexPipeline
-
-        if kb_base_dir is not None:
-            kwargs.setdefault("kb_base_dir", kb_base_dir)
-        return PageIndexPipeline(provider=provider, **kwargs)
-
+    if kb_base_dir is not None:
+        kwargs.setdefault("kb_base_dir", kb_base_dir)
     if provider == GRAPHRAG_PROVIDER:
         from .pipelines.graphrag.pipeline import GraphRagPipeline
 
-        if kb_base_dir is not None:
-            kwargs.setdefault("kb_base_dir", kb_base_dir)
         return GraphRagPipeline(**kwargs)
 
-    if provider == LIGHTRAG_PROVIDER:
-        from .pipelines.lightrag.pipeline import LightRagPipeline
+    from .pipelines.lightrag.pipeline import LightRagPipeline
 
-        if kb_base_dir is not None:
-            kwargs.setdefault("kb_base_dir", kb_base_dir)
-        return LightRagPipeline(**kwargs)
-
-    if provider == LIGHTRAG_SERVER_PROVIDER:
-        from .pipelines.lightrag_server.pipeline import LightRagServerPipeline
-
-        if kb_base_dir is not None:
-            kwargs.setdefault("kb_base_dir", kb_base_dir)
-        return LightRagServerPipeline(**kwargs)
-
-    if provider == IMA_PROVIDER:
-        from .pipelines.ima.pipeline import ImaPipeline
-
-        if kb_base_dir is not None:
-            kwargs.setdefault("kb_base_dir", kb_base_dir)
-        return ImaPipeline(**kwargs)
-
-    if provider == WEKNORA_PROVIDER:
-        from .pipelines.weknora.pipeline import WeKnoraPipeline
-
-        if kb_base_dir is not None:
-            kwargs.setdefault("kb_base_dir", kb_base_dir)
-        return WeKnoraPipeline(**kwargs)
-
-    from .pipelines.llamaindex.pipeline import LlamaIndexPipeline
-
-    if kb_base_dir is not None:
-        kwargs.setdefault("kb_base_dir", kb_base_dir)
-    return LlamaIndexPipeline(**kwargs)
+    return LightRagPipeline(**kwargs)
 
 
 def get_pipeline(
@@ -199,29 +131,6 @@ def get_pipeline(
 def list_pipelines() -> List[Dict[str, Any]]:
     """Describe the available pipelines for the UI provider picker."""
     try:
-        from .pipelines.pageindex.config import is_pageindex_configured
-
-        pageindex_ready = is_pageindex_configured()
-    except Exception:
-        pageindex_ready = False
-
-    try:
-        from .pipelines.pageindex.client import resolve_oss_sdk_config
-
-        resolve_oss_sdk_config()
-        pageindex_oss_ready, pageindex_oss_reason = True, ""
-    except Exception as exc:
-        pageindex_oss_ready = False
-        pageindex_oss_reason = str(exc)
-
-    try:
-        from .pipelines.ima.config import is_ima_configured
-
-        ima_ready = is_ima_configured()
-    except Exception:
-        ima_ready = False
-
-    try:
         from .pipelines.graphrag import config as graphrag_config
 
         graphrag_ready = graphrag_config.is_graphrag_available()
@@ -239,45 +148,11 @@ def list_pipelines() -> List[Dict[str, Any]]:
     except Exception:
         lightrag_ready, lightrag_modes, lightrag_default_mode = False, [], ""
 
-    try:
-        from pathmind.services.config import load_lightrag_server_settings
-
-        from .pipelines.lightrag_server import config as lightrag_server_config
-
-        lightrag_server_modes = list(lightrag_server_config.SUPPORTED_MODES)
-        lightrag_server_default_mode = lightrag_server_config.DEFAULT_MODE
-        lightrag_server_defaults_ready = bool(load_lightrag_server_settings().get("server_url"))
-    except Exception:
-        lightrag_server_modes, lightrag_server_default_mode = [], ""
-        lightrag_server_defaults_ready = False
-
-    return [
-        {
-            "id": DEFAULT_PROVIDER,
-            "name": "LlamaIndex",
-            "description": "Local vector retrieval with hybrid BM25/vector fusion. Works out of the box.",
-            "configured": True,
-            "requires_api_key": False,
-        },
-        {
-            "id": PAGEINDEX_PROVIDER,
-            "name": "PageIndex Cloud",
-            "description": "Hosted, vectorless engine: the chat agent reads documents through PageIndex SDK tools. Requires an API key; PDF, Office, text and Markdown formats.",
-            "configured": pageindex_ready,
-            "requires_api_key": True,
-        },
-        {
-            "id": PAGEINDEX_OSS_PROVIDER,
-            "name": "PageIndex OSS",
-            "description": "Local, chunkless and vectorless document indexing. Uses the active LLM and accepts PDF files.",
-            "configured": pageindex_oss_ready,
-            "requires_api_key": False,
-            "readiness_reason": pageindex_oss_reason,
-        },
+    pipelines = [
         {
             "id": GRAPHRAG_PROVIDER,
             "name": "GraphRAG",
-            "description": "Local knowledge-graph retrieval (global/local/drift/basic). Needs `pip install 'pathmind[graphrag]'`; indexing is LLM-heavy.",
+            "description": "Knowledge-graph retrieval with community reports (global/local/drift/basic). Best for the curated main tree. Needs `pip install 'pathmind[graphrag]'`; indexing is LLM-heavy.",
             "configured": graphrag_ready,
             "requires_api_key": False,
             "modes": graphrag_modes,
@@ -286,65 +161,23 @@ def list_pipelines() -> List[Dict[str, Any]]:
         {
             "id": LIGHTRAG_PROVIDER,
             "name": "LightRAG",
-            "description": "Graph + vector retrieval with multimodal parsing (naive/local/global/hybrid/mix). Needs `pip install 'pathmind[rag-lightrag]'`; indexing is LLM-heavy.",
+            "description": "Graph + vector retrieval with multimodal parsing (naive/local/global/hybrid/mix). Best for documents added over time. Needs `pip install 'pathmind[rag-lightrag]'`.",
             "configured": lightrag_ready,
             "requires_api_key": False,
             "modes": lightrag_modes,
             "default_mode": lightrag_default_mode,
         },
-        {
-            "id": LIGHTRAG_SERVER_PROVIDER,
-            "name": "LightRAG Server",
-            "description": "Retrieval offloaded to an external, standalone LightRAG server you run. No local index — connect a KB to its URL and query it over HTTP (naive/local/global/hybrid/mix).",
-            # Always available: it's a thin HTTP client with no install or global
-            # credential. The endpoint is configured per-KB at connect time.
-            "configured": True,
-            "requires_api_key": False,
-            "setup_required": not lightrag_server_defaults_ready,
-            "modes": lightrag_server_modes,
-            "default_mode": lightrag_server_default_mode,
-        },
-        {
-            "id": IMA_PROVIDER,
-            "name": "Tencent IMA",
-            "description": (
-                "Retrieval offloaded to a knowledge base you keep in Tencent IMA. "
-                "No local index and no copy — connect a KB to its IMA library and "
-                "query it over IMA's OpenAPI. Chat can also browse the library's "
-                "documents, read a full source, search your IMA notes, and (when "
-                "you ask) collect a web page or save a note. Uploading files still "
-                "happens in IMA itself. Requires an IMA Client ID and API key."
-            ),
-            # A thin HTTPS client with no install; readiness is only about the
-            # account credentials. The library id stays per-KB, set at connect
-            # time, and a KB may pin its own credentials to reach another account.
-            "configured": ima_ready,
-            "requires_api_key": True,
-        },
-        {
-            "id": WEKNORA_PROVIDER,
-            "name": "WeKnora",
-            "description": (
-                "Retrieval offloaded to a knowledge base in your self-hosted "
-                "WeKnora deployment. No local index or document copy; connect "
-                "to its API URL, API key, and knowledge-base ID."
-            ),
-            "configured": True,
-            "requires_api_key": True,
-        },
     ]
+    return pipelines
 
 
 __all__ = [
     "DEFAULT_PROVIDER",
-    "PAGEINDEX_PROVIDER",
-    "PAGEINDEX_OSS_PROVIDER",
     "GRAPHRAG_PROVIDER",
     "LIGHTRAG_PROVIDER",
-    "LIGHTRAG_SERVER_PROVIDER",
-    "IMA_PROVIDER",
-    "WEKNORA_PROVIDER",
     "KNOWN_PROVIDERS",
+    "NEW_KB_PROVIDERS",
+    "default_provider_for_role",
     "get_pipeline",
     "has_ready_provider_index",
     "list_pipelines",

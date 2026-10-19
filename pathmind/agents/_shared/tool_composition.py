@@ -295,7 +295,12 @@ def user_has_knowledge_tree() -> bool:
         from pathmind.services.knowledge_tree import has_content
 
         with get_db_session() as db:
-            return has_content(db)
+            if has_content(db):
+                return True
+            from pathmind.multi_user.context import get_current_user
+            from pathmind.services.knowledge_branch import overlay
+
+            return overlay.has_nodes(db, str(get_current_user().id or ""))
     except Exception:
         return False
 

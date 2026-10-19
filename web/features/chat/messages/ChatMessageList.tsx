@@ -2,6 +2,7 @@
 
 import dynamic from "next/dynamic";
 import { UsageFooter } from "./UsageFooter";
+import { RateAnswerButtons } from "./RateAnswerButtons";
 import { cumulativeMessageUsage, messageUsage } from "./usage-summary";
 import {
   memo,
@@ -2238,6 +2239,13 @@ export const ChatMessageList = memo(function ChatMessageList({
                         autoPlayFresh={
                           isLastAssistant && freshlyCompletedIndex === i
                         }
+                      />
+                    )}
+                    {showActions && !isActiveAssistant && (
+                      <RateAnswerButtons
+                        sessionId={sessionId}
+                        messageId={String(msg.id)}
+                        content={msg.content}
                       />
                     )}
                     {showActions && showRegenerate && (

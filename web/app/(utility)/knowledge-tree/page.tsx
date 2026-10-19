@@ -1,7 +1,5 @@
-"use client";
-
-import KnowledgeTreePage from "@/components/knowledge-tree/KnowledgeTreePage";
+import { redirect } from "next/navigation";
 
 export default function Page() {
-  return <KnowledgeTreePage />;
+  redirect("/admin/knowledge");
 }

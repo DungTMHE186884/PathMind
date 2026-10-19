@@ -35,8 +35,18 @@ MAX_ATTEMPTS = int(os.environ.get("EMAIL_CODE_MAX_ATTEMPTS", "5") or 5)
 RESEND_COOLDOWN_SECONDS = 60
 
 
+def _smtp(key: str) -> str:
+    """SMTP setting: administrator value first, then the environment."""
+    try:
+        from pathmind.services import system_settings
+
+        return system_settings.get(f"smtp.{key}")
+    except Exception:  # pragma: no cover
+        return os.environ.get(f"SMTP_{key.upper()}", "").strip()
+
+
 def smtp_configured() -> bool:
-    return bool(os.environ.get("SMTP_HOST", "").strip())
+    return bool(_smtp("host"))
 
 
 def verification_required() -> bool:
@@ -61,14 +71,14 @@ def _hash(email: str, code: str) -> str:
 
 
 def _send_mail(to: str, subject: str, body: str) -> bool:
-    host = os.environ.get("SMTP_HOST", "").strip()
+    host = _smtp("host")
     if not host:
         return False
-    port = int(os.environ.get("SMTP_PORT", "587") or 587)
-    user = os.environ.get("SMTP_USERNAME", "").strip()
-    password = os.environ.get("SMTP_PASSWORD", "")
-    sender = os.environ.get("SMTP_FROM", "").strip() or user
-    mode = os.environ.get("SMTP_TLS", "starttls").strip().lower()
+    port = int(_smtp("port") or 587)
+    user = _smtp("username")
+    password = _smtp("password")
+    sender = _smtp("from") or user
+    mode = (_smtp("tls") or "starttls").lower()
 
     msg = EmailMessage()
     msg["Subject"] = subject

@@ -17,7 +17,16 @@ import {
   type AskResult,
   getTree,
   importFile,
+  importTree,
+  exportTree,
   listDomains,
+  listDocuments,
+  uploadDocument,
+  deleteDocument,
+  downloadDocument,
+  listAudit,
+  type StoreDocument,
+  type AuditEntry,
   patchNode,
   type DomainSummary,
   type NodeDetail,
@@ -207,6 +216,15 @@ export default function KnowledgeTreePage() {
                         )}
                       </div>
                     </div>
+                    {rights.can_edit && (
+                      <StorePanel
+                        key={`store-${tree.domain.id}`}
+                        domainId={tree.domain.id}
+                        domainName={tree.domain.name}
+                        onError={fail}
+                        onImported={() => void loadDomains()}
+                      />
+                    )}
                     {rights.can_edit && (
                       <KbPanel
                         key={tree.domain.id}
@@ -483,6 +501,130 @@ function KbPanel({
             <p key={n} className="text-[var(--muted-foreground)]">{n}</p>
           ))}
           <pre className="mt-1 max-h-72 overflow-auto whitespace-pre-wrap rounded bg-[var(--muted)] p-2">{result.content}</pre>
+        </div>
+      )}
+    </div>
+  );
+}
+
+
+function fmtSize(n: number) {
+  return n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`;
+}
+
+function StorePanel({
+  domainId,
+  domainName,
+  onError,
+  onImported,
+}: {
+  domainId: string;
+  domainName: string;
+  onError: (e: unknown) => void;
+  onImported: () => void;
+}) {
+  const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
+  const [docs, setDocs] = useState<StoreDocument[]>([]);
+  const [log, setLog] = useState<AuditEntry[] | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const reload = useCallback(async () => {
+    setDocs(await listDocuments(domainId));
+    setLog(null);
+  }, [domainId]);
+
+  useEffect(() => {
+    if (open) void reload().catch(onError);
+  }, [open, reload, onError]);
+
+  async function act(fn: () => Promise<unknown>) {
+    setBusy(true);
+    try {
+      await fn();
+    } catch (e) {
+      onError(e);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="mb-3 rounded-xl border border-[var(--border)] p-3">
+      <button type="button" className="text-[12px] font-medium" onClick={() => setOpen(!open)}>
+        {open ? "▾" : "▸"} {t("Document store")}
+      </button>
+      {open && (
+        <div className="mt-2 space-y-2 text-[12px]">
+          <div className="flex flex-wrap gap-2">
+            <label className={`${BTN} cursor-pointer`}>
+              {t("Upload document")}
+              <input
+                type="file"
+                hidden
+                accept=".pdf,.docx,.md,.markdown,.txt"
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  e.target.value = "";
+                  if (f) void act(async () => { await uploadDocument(domainId, f); await reload(); });
+                }}
+              />
+            </label>
+            <button type="button" className={BTN} disabled={busy} onClick={() => void act(() => exportTree(domainId, domainName))}>
+              {t("Export tree")}
+            </button>
+            <label className={`${BTN} cursor-pointer`}>
+              {t("Import tree")}
+              <input
+                type="file"
+                hidden
+                accept=".json,application/json"
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  e.target.value = "";
+                  if (f) void act(async () => { await importTree(f); onImported(); });
+                }}
+              />
+            </label>
+            <button type="button" className={BTN} disabled={busy} onClick={() => void act(async () => setLog(await listAudit()))}>
+              {t("Activity log")}
+            </button>
+          </div>
+          {docs.length === 0 ? (
+            <p className="text-[var(--muted-foreground)]">{t("No documents yet.")}</p>
+          ) : (
+            <ul className="space-y-1">
+              {docs.map((d) => (
+                <li key={d.id} className="flex items-center justify-between gap-2">
+                  <span className="min-w-0 truncate">{d.filename} <span className="text-[var(--muted-foreground)]">· {fmtSize(d.size)}</span></span>
+                  <span className="flex shrink-0 gap-1">
+                    <button type="button" className={BTN} disabled={busy} onClick={() => void act(() => downloadDocument(d))}>{t("Download")}</button>
+                    <button
+                      type="button"
+                      className={BTN}
+                      disabled={busy}
+                      onClick={async () => {
+                        if (!(await confirmAction(`${t("Delete")}: ${d.filename}?`, { tone: "danger" }))) return;
+                        void act(async () => { await deleteDocument(d.id); await reload(); });
+                      }}
+                    >
+                      {t("Delete")}
+                    </button>
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+          {log && (
+            <ul className="max-h-48 space-y-0.5 overflow-auto text-[11px] text-[var(--muted-foreground)]">
+              {log.length === 0 && <li>{t("No activity yet.")}</li>}
+              {log.map((l, i) => (
+                <li key={l.id ?? i}>
+                  {l.created_at?.replace("T", " ").slice(0, 16)} · {l.action} · {String(l.data?.filename ?? l.data?.name ?? l.target_id)}
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       )}
     </div>

@@ -33,9 +33,6 @@ _ARCHIVE_PREFIX = "_archived_"
 # channel that says nothing, or says something new — yields "", and the list
 # stays silent rather than guessing.
 _CONVERSATION_SCOPES: dict[str, dict[str, str]] = {
-    "feishu": {"group": "group", "p2p": "direct"},
-    "slack": {"im": "direct", "channel": "group", "group": "group", "mpim": "group"},
-    "mattermost": {"d": "direct", "o": "group", "p": "group", "g": "group"},
 }
 
 

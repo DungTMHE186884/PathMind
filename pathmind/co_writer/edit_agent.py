@@ -14,7 +14,6 @@ from pathmind.co_writer.storage import _atomic_write_json
 from pathmind.runtime.registry.tool_registry import get_tool_registry
 from pathmind.services.llm import clean_thinking_tags
 from pathmind.services.path_service import get_path_service
-from pathmind.services.rag.pipelines.pageindex import is_pageindex_kb
 from pathmind.tools.rag_tool import rag_search
 from pathmind.tools.web_search import web_search
 
@@ -141,8 +140,7 @@ class EditAgent(BaseAgent):
         context = ""
         tool_call_file = None
 
-        pageindex_source = source == "rag" and is_pageindex_kb(kb_name)
-        if source and not pageindex_source:
+        if source:
             context, tool_call_file = await self.gather_context(
                 source=source,
                 query=instruction,
@@ -183,42 +181,15 @@ class EditAgent(BaseAgent):
         )
         user_prompt += text_template.format(text=text)
 
-        # PageIndex reading belongs inside the edit reasoning loop; traditional
-        # RAG and web sources keep the existing prefetch path above.
         self.logger.info(f"Calling LLM for {action}...")
-        if pageindex_source and kb_name:
-            from pathmind.services.rag.pipelines.pageindex.reasoning import (
-                read_pageindex_with_agent,
-            )
-
-            reading = await read_pageindex_with_agent(
-                kb_name=kb_name,
-                system_prompt=system_prompt,
-                user_prompt=user_prompt,
-                source="co_writer",
-                stage=f"edit_{action}",
-            )
-            response = clean_thinking_tags(reading.text, self.binding, self.get_model())
-            tool_call_file = save_tool_call(
-                operation_id,
-                "pageindex",
-                {
-                    "type": "pageindex",
-                    "timestamp": datetime.now().isoformat(),
-                    "operation_id": operation_id,
-                    "kb_name": kb_name,
-                    "sources": reading.sources,
-                },
-            )
-        else:
-            _chunks: list[str] = []
-            async for _c in self.stream_llm(
-                user_prompt=user_prompt,
-                system_prompt=system_prompt,
-                stage=f"edit_{action}",
-            ):
-                _chunks.append(_c)
-            response = clean_thinking_tags("".join(_chunks), self.binding, self.get_model())
+        _chunks: list[str] = []
+        async for _c in self.stream_llm(
+            user_prompt=user_prompt,
+            system_prompt=system_prompt,
+            stage=f"edit_{action}",
+        ):
+            _chunks.append(_c)
+        response = clean_thinking_tags("".join(_chunks), self.binding, self.get_model())
 
         # Record operation history
         append_history(

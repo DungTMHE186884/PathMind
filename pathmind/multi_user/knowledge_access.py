@@ -17,7 +17,6 @@ from pathmind.knowledge.manifest import (
 )
 
 from .context import get_current_user
-from .grants import load_grant
 from .models import KnowledgeResource
 from .paths import get_admin_path_service, get_current_path_service
 
@@ -61,21 +60,6 @@ def _strip_resource_prefix(value: str) -> tuple[str | None, str]:
     return None, raw
 
 
-def _assigned_admin_names() -> set[str]:
-    user = get_current_user()
-    if user.is_admin:
-        return set()
-    out: set[str] = set()
-    for item in load_grant(user.id).get("knowledge_bases", []) or []:
-        name = str(item.get("name") or item.get("kb_name") or "").strip()
-        resource_id = str(item.get("resource_id") or item.get("id") or "")
-        if resource_id.startswith(ADMIN_PREFIX):
-            name = resource_id[len(ADMIN_PREFIX) :]
-        if name:
-            out.add(name)
-    return out
-
-
 def resolve_kb(kb_ref: str, *, require_write: bool = False) -> KnowledgeResource:
     from pathmind.services.workspace.knowledge import (
         learning_source_kbs,
@@ -113,23 +97,10 @@ def _resolve_kb(kb_ref: str, *, require_write: bool = False) -> KnowledgeResourc
         )
 
     user_manager = current_kb_manager()
-    assigned_names = _assigned_admin_names()
 
     if requested_source == "admin":
-        if name not in assigned_names:
-            raise HTTPException(status_code=403, detail="Knowledge base is not assigned to you")
-        if require_write:
-            raise HTTPException(
-                status_code=403, detail="Assigned admin knowledge bases are read-only"
-            )
-        return KnowledgeResource(
-            id=f"admin:kb:{name}",
-            name=name,
-            base_dir=admin_kb_base_dir(),
-            source="admin",
-            assigned=True,
-            read_only=True,
-        )
+        # No per-user grants of admin knowledge bases: personal KBs only.
+        raise HTTPException(status_code=403, detail="Knowledge base is not available to you")
 
     if requested_source == "user":
         resolved = _resolve_default_or_name(user_manager, name)
@@ -162,20 +133,6 @@ def _resolve_kb(kb_ref: str, *, require_write: bool = False) -> KnowledgeResourc
             source="user",
             assigned=False,
             read_only=False,
-        )
-
-    if name in assigned_names:
-        if require_write:
-            raise HTTPException(
-                status_code=403, detail="Assigned admin knowledge bases are read-only"
-            )
-        return KnowledgeResource(
-            id=f"admin:kb:{name}",
-            name=name,
-            base_dir=admin_kb_base_dir(),
-            source="admin",
-            assigned=True,
-            read_only=True,
         )
 
     raise HTTPException(status_code=404, detail=f"Knowledge base '{name}' not found")
@@ -227,35 +184,6 @@ def _list_visible_knowledge_bases() -> list[dict[str, Any]]:
             }
         )
 
-    if user.is_admin:
-        return items
-
-    admin_manager = admin_kb_manager()
-    admin_names = set(admin_manager.list_knowledge_bases())
-    existing_ids = {item["id"] for item in items}
-    for item in load_grant(user.id).get("knowledge_bases", []) or []:
-        name = str(item.get("name") or item.get("kb_name") or "").strip()
-        resource_id = str(item.get("resource_id") or item.get("id") or "")
-        if resource_id.startswith(ADMIN_PREFIX):
-            name = resource_id[len(ADMIN_PREFIX) :]
-        if not name:
-            continue
-        rid = f"admin:kb:{name}"
-        if rid in existing_ids:
-            continue
-        items.append(
-            {
-                "id": rid,
-                "name": name,
-                "source": "admin",
-                "assigned": True,
-                "read_only": True,
-                "available": name in admin_names,
-                "provenance_label": "Assigned by admin",
-                "needs_admin_reindex": bool(item.get("needs_admin_reindex", False)),
-                "embedding_signature": item.get("embedding_signature", ""),
-            }
-        )
     return items
 
 

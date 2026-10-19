@@ -1,4 +1,8 @@
-"""One access resolver for personal and admin-shared books."""
+"""Book access resolver: every user (admin included) sees only their own books.
+
+There is no shared catalogue and no per-book permission; what a user may do
+with books is decided by role and subscription plan (entitlements) alone.
+"""
 
 from __future__ import annotations
 
@@ -9,24 +13,11 @@ from pathmind.book.learning_overlay import BookLearningOverlay
 from pathmind.book.models import Book, Progress
 from pathmind.book.storage import BookStorage, get_book_storage
 
-from .book_permission import BookPermissionLevel, permission_for_user
-from .context import get_current_user
-from .paths import get_admin_path_service, get_current_path_service
-
 if TYPE_CHECKING:
     from pathmind.book.engine import BookEngine
 
+BookPermissionLevel = Literal["none", "read", "edit"]
 BookSource = Literal["own", "shared"]
-
-
-def _auth_enabled() -> bool:
-    from pathmind.services.auth import AUTH_ENABLED
-
-    return bool(AUTH_ENABLED)
-
-
-def _admin_storage() -> BookStorage:
-    return BookStorage(path_service=get_admin_path_service())
 
 
 @dataclass(frozen=True, slots=True)
@@ -76,125 +67,56 @@ class ResolvedBook:
 
 
 def can_create_book() -> bool:
-    if not _auth_enabled() or get_current_user().is_admin:
-        return True
-    return permission_for_user(get_current_user()).create
+    # Creation limits come from the subscription plan (entitlements), not here.
+    return True
 
 
 def resolve_book(book_id: str) -> ResolvedBook | None:
-    """Resolve own-first, then shared, returning None for denied/unknown ids."""
+    """Resolve one of the caller's own books; None for unknown ids."""
 
-    from pathmind.book.engine import BookEngine, get_book_engine
+    from pathmind.book.engine import get_book_engine
 
     own_storage = get_book_storage()
-    user = get_current_user()
-    if own_storage.book_exists(book_id):
-        return ResolvedBook(
-            engine=get_book_engine(),
-            source="own",
-            permission="edit",
-            can_edit=True,
-            can_delete=True,
-            learning=own_storage,
-        )
-    if not _auth_enabled() or user.is_admin:
-        return None
-
-    admin_storage = _admin_storage()
-    if not admin_storage.book_exists(book_id):
-        return None
-    level = permission_for_user(user).level_for(book_id)
-    if level == "none":
+    if not own_storage.book_exists(book_id):
         return None
     return ResolvedBook(
-        engine=BookEngine(storage=admin_storage),
-        source="shared",
-        permission=level,
-        can_edit=level == "edit",
-        can_delete=False,
-        learning=BookLearningOverlay(get_current_path_service()),
+        engine=get_book_engine(),
+        source="own",
+        permission="edit",
+        can_edit=True,
+        can_delete=True,
+        learning=own_storage,
     )
 
 
 def accessible_books() -> list[tuple[Book, ResolvedBook]]:
-    """List own plus allowed shared books, resolving permission only once."""
+    """List the caller's own books, newest first."""
 
-    from pathmind.book.engine import BookEngine, get_book_engine
+    from pathmind.book.engine import get_book_engine
 
     own_storage = get_book_storage()
     own_engine = get_book_engine()
-    results: list[tuple[Book, ResolvedBook]] = []
-    own_ids: set[str] = set()
-    for book in own_engine.list_books():
-        own_ids.add(book.id)
-        results.append(
-            (
-                book,
-                ResolvedBook(
-                    engine=own_engine,
-                    source="own",
-                    permission="edit",
-                    can_edit=True,
-                    can_delete=True,
-                    learning=own_storage,
-                ),
-            )
+    results = [
+        (
+            book,
+            ResolvedBook(
+                engine=own_engine,
+                source="own",
+                permission="edit",
+                can_edit=True,
+                can_delete=True,
+                learning=own_storage,
+            ),
         )
-
-    user = get_current_user()
-    if _auth_enabled() and not user.is_admin:
-        permission = permission_for_user(user)
-        if permission.default != "none" or permission.books:
-            admin_storage = _admin_storage()
-            admin_engine = BookEngine(storage=admin_storage)
-            overlay = BookLearningOverlay(get_current_path_service())
-            for book in admin_engine.list_books():
-                if book.id in own_ids:
-                    continue
-                level = permission.level_for(book.id)
-                if level == "none":
-                    continue
-                results.append(
-                    (
-                        book,
-                        ResolvedBook(
-                            engine=admin_engine,
-                            source="shared",
-                            permission=level,
-                            can_edit=level == "edit",
-                            can_delete=False,
-                            learning=overlay,
-                        ),
-                    )
-                )
+        for book in own_engine.list_books()
+    ]
     results.sort(key=lambda item: item[0].updated_at, reverse=True)
     return results
-
-
-def shared_book_exists(book_id: str) -> bool:
-    return _admin_storage().book_exists(book_id)
-
-
-def admin_book_catalog() -> list[dict[str, Any]]:
-    from pathmind.book.engine import BookEngine
-
-    engine = BookEngine(storage=_admin_storage())
-    return [
-        {
-            "book_id": book.id,
-            "title": book.title,
-            "status": book.status.value,
-            "updated_at": book.updated_at,
-        }
-        for book in engine.list_books()
-    ]
 
 
 __all__ = [
     "ResolvedBook",
     "accessible_books",
-    "admin_book_catalog",
     "can_create_book",
     "resolve_book",
-    "shared_book_exists",
 ]

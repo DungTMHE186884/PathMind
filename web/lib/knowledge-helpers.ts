@@ -14,36 +14,11 @@ export const DEFAULT_UPLOAD_POLICY: KnowledgeUploadPolicy = {
   allow_any_extension: false,
 };
 
-const PAGEINDEX_UPLOAD_EXTENSIONS: Record<string, string[]> = {
-  pageindex: [
-    ".pdf",
-    ".md",
-    ".markdown",
-    ".txt",
-    ".docx",
-    ".doc",
-    ".pptx",
-    ".ppt",
-    ".xlsx",
-    ".xls",
-    ".csv",
-  ],
-  "pageindex-oss": [".pdf"],
-};
-
 export function uploadPolicyForProvider(
   policy: KnowledgeUploadPolicy,
-  provider?: string,
+  _provider?: string,
 ): KnowledgeUploadPolicy {
-  const extensions = PAGEINDEX_UPLOAD_EXTENSIONS[provider || ""];
-  return extensions
-    ? {
-        ...policy,
-        extensions,
-        accept: extensions.join(","),
-        allow_any_extension: false,
-      }
-    : policy;
+  return policy;
 }
 
 export interface ProgressInfo {
@@ -210,8 +185,8 @@ export interface KnowledgeBase {
 export type ProviderConnectionStatus =
   "ready" | "needs_key" | "needs_setup" | "unavailable";
 
-export const providerUsesEmbeddingMetadata = (provider?: string): boolean =>
-  provider !== "pageindex" && provider !== "pageindex-oss";
+export const providerUsesEmbeddingMetadata = (_provider?: string): boolean =>
+  true;
 
 export const providerConnectionStatus = (provider: {
   id: string;
@@ -336,7 +311,7 @@ export const kbProvider = (kb: KnowledgeBase): string => {
   return (
     (kb.statistics?.rag_provider as string | undefined) ||
     (kb.metadata?.rag_provider as string | undefined) ||
-    "llamaindex"
+    "lightrag"
   );
 };
 
@@ -438,7 +413,7 @@ export const kbCanReindex = (kb: KnowledgeBase): boolean => {
       : true;
   if (!hasSourceFiles) return false;
   if (status === "error") return true;
-  if (["llamaindex", "lightrag", "graphrag"].includes(kbProvider(kb))) return !kbHasLiveProgress(kb);
+  if (["lightrag", "graphrag"].includes(kbProvider(kb))) return !kbHasLiveProgress(kb);
   return (
     Boolean(kb.statistics?.needs_reindex) ||
     kb.statistics?.active_match === false

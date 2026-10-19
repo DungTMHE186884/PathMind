@@ -18,7 +18,6 @@ export const EXTENSION_ENDPOINTS = {
   tools: "/api/settings/enabled-tools",
   "document-parsing": "/api/settings/document-parsing",
   mineru: "/api/settings/mineru",
-  "update-checks": "/api/system/update/settings",
   "chat-starters": "/api/settings/chat-starters",
   "chat-timeout": "/api/settings/chat-response-timeout",
   capabilities: "/api/capabilities/settings",

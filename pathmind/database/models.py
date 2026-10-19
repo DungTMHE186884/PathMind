@@ -480,6 +480,9 @@ class KnowledgeSource(Base):
     text = Column(Text, nullable=False, default="")
     uploaded_by = Column(String(36), nullable=False, default="")
     created_at = Column(DateTime, default=datetime.utcnow)
+    # Original file kept on disk so R&D can download it again (nullable: older rows).
+    blob_path = Column(String(500), nullable=True)
+    content_type = Column(String(120), nullable=True)
 
 
 class KnowledgeNode(Base):
@@ -497,3 +500,210 @@ class KnowledgeNode(Base):
     version = Column(Integer, nullable=False, default=1)
     updated_by = Column(String(36), nullable=False, default="")
     updated_at = Column(DateTime, default=datetime.utcnow)
+
+
+# ── Personal knowledge branch (each paid user grows one beside the hidden main tree) ──
+# First pass, designed for function. Normalising/indexing is a later pass.
+
+
+class PersonalBranch(Base):
+    """One per user. Never visible to others, never changes the main tree."""
+
+    __tablename__ = "personal_branches"
+
+    id = Column(String(36), primary_key=True, default=_gen_uuid)
+    user_id = Column(String(64), nullable=False, unique=True, index=True)
+    name = Column(String(120), nullable=False, default="My knowledge branch")
+    version = Column(Integer, nullable=False, default=1)  # bumped on every change (conflict check)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow)
+
+
+class BranchNode(Base):
+    __tablename__ = "branch_nodes"
+
+    id = Column(String(36), primary_key=True, default=_gen_uuid)
+    branch_id = Column(String(36), nullable=False, index=True)
+    parent_id = Column(String(36), nullable=True, index=True)
+    title = Column(String(200), nullable=False)
+    summary = Column(Text, nullable=False, default="")
+    position = Column(Integer, nullable=False, default=0)
+    # Optional link to the user's own knowledge base document this node came from.
+    source_kb = Column(String(200), nullable=True)
+    source_doc = Column(String(255), nullable=True)
+    # Prerequisite node ids inside the same branch (used for mastery paths later).
+    prerequisites = Column(JSON, nullable=False, default=list)
+    # Main-tree node this node hangs under (overlay model): None = top level.
+    anchor_node_id = Column(String(36), nullable=True, index=True)
+    # "manual" (typed by the user) or "auto" (built by the AI from an uploaded document).
+    origin = Column(String(12), nullable=False, default="manual")
+    updated_at = Column(DateTime, default=datetime.utcnow)
+
+
+class BranchVersion(Base):
+    """Named snapshot of a whole branch (JSON), so a user can roll back."""
+
+    __tablename__ = "branch_versions"
+
+    id = Column(String(36), primary_key=True, default=_gen_uuid)
+    branch_id = Column(String(36), nullable=False, index=True)
+    label = Column(String(120), nullable=False, default="")
+    snapshot = Column(JSON, nullable=False, default=list)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class AuditLog(Base):
+    """Who did what to which store item (uploads, downloads, imports, merges...)."""
+
+    __tablename__ = "audit_logs"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    actor_id = Column(String(64), nullable=False, default="", index=True)
+    action = Column(String(64), nullable=False, index=True)
+    target_type = Column(String(40), nullable=False, default="")
+    target_id = Column(String(64), nullable=False, default="")
+    data = Column(JSON, nullable=False, default=dict)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+
+
+# ── Recommendations (Educator -> R&D) and rewards ──
+# First pass, designed for function. Normalising/indexing is a later pass.
+
+
+class BranchRecommendation(Base):
+    """An Educator's offer of (part of) their branch, with its documents, to R&D."""
+
+    __tablename__ = "branch_recommendations"
+
+    id = Column(String(36), primary_key=True, default=_gen_uuid)
+    educator_id = Column(String(64), nullable=False, index=True)
+    title = Column(String(200), nullable=False)
+    note = Column(Text, nullable=False, default="")
+    nodes = Column(JSON, nullable=False, default=list)  # snapshot of the subtree (flat, with parent ids)
+    documents = Column(JSON, nullable=False, default=list)  # [{filename, size, sha256, path}]
+    status = Column(String(12), nullable=False, default="pending", index=True)  # pending|merged|rejected
+    reviewer_id = Column(String(64), nullable=True)
+    review_note = Column(Text, nullable=False, default="")
+    merged = Column(JSON, nullable=False, default=dict)  # {domain_id, parent_id, node_ids, points}
+    created_at = Column(DateTime, default=datetime.utcnow)
+    reviewed_at = Column(DateTime, nullable=True)
+
+
+class RewardLedger(Base):
+    """Append-only points ledger. Positive = earned, negative = redeemed."""
+
+    __tablename__ = "reward_ledger"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(String(64), nullable=False, index=True)
+    points = Column(Integer, nullable=False)
+    reason = Column(String(60), nullable=False)
+    ref = Column(String(64), nullable=False, default="")
+    note = Column(String(300), nullable=False, default="")
+    created_by = Column(String(64), nullable=False, default="")
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class RewardRule(Base):
+    """Admin/R&D-tunable numbers: points per event and redemption rates."""
+
+    __tablename__ = "reward_rules"
+
+    key = Column(String(60), primary_key=True)
+    value = Column(Integer, nullable=False, default=0)
+    updated_by = Column(String(64), nullable=False, default="")
+    updated_at = Column(DateTime, default=datetime.utcnow)
+
+
+class BonusCredit(Base):
+    """AI credits bought with points; added to the user's plan limits until expiry."""
+
+    __tablename__ = "bonus_credits"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(String(64), nullable=False, index=True)
+    credits = Column(BigInteger, nullable=False)
+    expires_at = Column(DateTime, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class Invitation(Base):
+    """R&D invitations sent by email; unused ones can be revoked."""
+
+    __tablename__ = "invitations"
+
+    id = Column(String(36), primary_key=True, default=_gen_uuid)
+    email = Column(String(255), nullable=False, index=True)
+    role = Column(String(12), nullable=False, default="rnd")
+    invited_by = Column(String(64), nullable=False, default="")
+    status = Column(String(12), nullable=False, default="pending")  # pending|accepted|revoked
+    expires_at = Column(DateTime, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class AnswerRating(Base):
+    """A user's right/wrong mark on one AI answer (one per user and message)."""
+
+    __tablename__ = "answer_ratings"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(String(64), nullable=False, index=True)
+    session_id = Column(String(64), nullable=False, default="", index=True)
+    message_id = Column(String(64), nullable=False, index=True)
+    verdict = Column(String(8), nullable=False)  # right | wrong
+    reason = Column(String(500), nullable=False, default="")
+    excerpt = Column(String(300), nullable=False, default="")  # start of the rated answer
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class NodeMastery(Base):
+    """Which personal-branch nodes a user has marked as mastered."""
+
+    __tablename__ = "node_mastery"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(String(64), nullable=False, index=True)
+    node_id = Column(String(36), nullable=False, index=True)
+    mastered_at = Column(DateTime, default=datetime.utcnow)
+
+
+class SystemSetting(Base):
+    """Administrator-editable settings that override environment defaults."""
+
+    __tablename__ = "system_settings"
+
+    key = Column(String(80), primary_key=True)
+    value = Column(Text, nullable=False, default="")
+    updated_by = Column(String(64), nullable=False, default="")
+    updated_at = Column(DateTime, default=datetime.utcnow)
+
+
+class StorageBackend(Base):
+    """Where document bytes live: a local folder or an S3-compatible bucket (AWS S3, MinIO...)."""
+
+    __tablename__ = "storage_backends"
+
+    id = Column(String(36), primary_key=True, default=_gen_uuid)
+    name = Column(String(100), nullable=False, unique=True)
+    kind = Column(String(8), nullable=False)  # local | s3
+    config = Column(JSON, nullable=False, default=dict)  # secrets live here; never returned by the API
+    is_default = Column(Boolean, nullable=False, default=False)
+    enabled = Column(Boolean, nullable=False, default=True)
+    last_test_ok = Column(Boolean, nullable=True)
+    last_test_message = Column(String(300), nullable=False, default="")
+    last_test_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class BranchDocument(Base):
+    """Original files an Educator added to their personal branch (kept for recommendations)."""
+
+    __tablename__ = "branch_documents"
+
+    id = Column(String(36), primary_key=True, default=_gen_uuid)
+    user_id = Column(String(64), nullable=False, index=True)
+    filename = Column(String(255), nullable=False)
+    ref = Column(String(600), nullable=False)  # storage reference, see services/storage/object_store.py
+    size = Column(Integer, nullable=False, default=0)
+    sha256 = Column(String(64), nullable=False, default="")
+    created_at = Column(DateTime, default=datetime.utcnow)

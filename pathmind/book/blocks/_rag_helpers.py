@@ -90,20 +90,6 @@ async def optional_rag_lookup(*, query: str, ctx) -> RagLookup:
         return RagLookup()
 
     try:
-        from pathmind.multi_user.knowledge_access import resolve_kb
-        from pathmind.services.rag.factory import PAGEINDEX_OSS_PROVIDER, PAGEINDEX_PROVIDER
-        from pathmind.services.rag.provider_binding import resolve_bound_provider
-
-        resource = resolve_kb(ctx.primary_kb, require_write=False)
-        provider = resolve_bound_provider(str(resource.base_dir), resource.name)
-        if provider in {PAGEINDEX_PROVIDER, PAGEINDEX_OSS_PROVIDER}:
-            # PageIndex evidence is gathered once by SourceExplorer's own agent
-            # loop and reused through relevant_chunks; never fall back to search().
-            return RagLookup()
-    except Exception:
-        pass
-
-    try:
         from pathmind.tools.rag_tool import rag_search
 
         result = await rag_search(query=query, kb_name=ctx.primary_kb)

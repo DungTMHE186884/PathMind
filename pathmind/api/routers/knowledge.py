@@ -65,8 +65,8 @@ from pathmind.services.rag.factory import (
     DEFAULT_PROVIDER,
     GRAPHRAG_PROVIDER,
     LIGHTRAG_PROVIDER,
-    PAGEINDEX_OSS_PROVIDER,
-    PAGEINDEX_PROVIDER,
+    NEW_KB_PROVIDERS,
+    default_provider_for_role,
     normalize_provider_name,
     provider_uses_embedding_versions,
 )
@@ -75,18 +75,6 @@ from pathmind.services.rag.linked_kb import (
     LINKABLE_PROVIDERS,
     assert_path_allowed,
     probe_linked_folder,
-)
-from pathmind.services.rag.pipelines.ima.client import (
-    MAX_PAGE_LIMIT,
-    ImaAPIError,
-    ImaAuthError,
-    ImaClient,
-    ImaRateLimitError,
-)
-from pathmind.services.rag.pipelines.ima.config import (
-    ImaConfig,
-    ImaCredentials,
-    get_account_credentials,
 )
 from pathmind.utils.document_extractor import (
     MAX_EXTRACTED_CHARS_PER_DOC,
@@ -504,6 +492,19 @@ def _save_uploaded_files(
     return uploaded_files, uploaded_file_paths
 
 
+def _schedule_branch_enrichment(background_tasks: BackgroundTasks, file_paths: list[str]) -> None:
+    """Grow the uploader's personal branch from the new files' outlines (no AI cost).
+
+    Staff uploads feed the curated main tree instead, so they are left out.
+    """
+    user = get_current_user()
+    if not getattr(user, "id", None) or str(getattr(user, "role", "")) in ("admin", "rnd"):
+        return
+    from pathmind.services.knowledge_branch import overlay
+
+    background_tasks.add_task(overlay.auto_enrich_files, str(user.id), list(file_paths))
+
+
 async def _save_uploaded_files_off_loop(
     files: list[UploadFile],
     target_dir: Path,
@@ -664,9 +665,33 @@ def _validate_registered_provider(raw_provider: str | None) -> str:
     a removed engine never selects a missing pipeline). Returning the real,
     canonical provider is what makes the per-KB lock meaningful: the upload route
     compares the requested provider against the KB's bound provider, so asking to
-    add to a ``pageindex`` KB with ``llamaindex`` (or vice versa) is rejected.
+    add to a ``graphrag`` KB with ``lightrag`` (or vice versa) is rejected.
     """
     return normalize_provider_name(raw_provider)
+
+
+def _new_kb_provider(raw: str | None) -> str:
+    """Provider for a *new* knowledge base (D2: graph engines only).
+
+    Empty means "pick for me": GraphRAG for R&D/administrators, LightRAG for everyone
+    else. Any other engine is no longer offered.
+    """
+    value = (raw or "").strip().lower()
+    role = str(getattr(get_current_user_or_none(), "role", "user") or "user")
+    if not value:
+        return default_provider_for_role(role)
+    if value not in NEW_KB_PROVIDERS:
+        raise HTTPException(
+            status_code=400,
+            detail="This retrieval engine is no longer available. Use GraphRAG or LightRAG.",
+        )
+    # GraphRAG serves the curated main tree; personal documents always use LightRAG.
+    if value != default_provider_for_role(role) and role not in ("admin", "rnd"):
+        raise HTTPException(
+            status_code=403,
+            detail="Your documents are indexed with LightRAG. GraphRAG is reserved for the main knowledge tree.",
+        )
+    return value
 
 
 def _freeze_indexing_llm_form(raw: str):
@@ -727,39 +752,8 @@ def _indexing_credit_precheck() -> None:
 def _assert_provider_ready(provider: str) -> None:
     """Block creating/using a KB whose engine isn't ready.
 
-    PageIndex needs an API key; GraphRAG needs the optional package installed.
+    GraphRAG and LightRAG need their optional packages installed.
     """
-    if provider == PAGEINDEX_PROVIDER:
-        from pathmind.services.rag.pipelines.pageindex.config import is_pageindex_configured
-
-        if not is_pageindex_configured():
-            raise HTTPException(
-                status_code=400,
-                detail=(
-                    "PageIndex API key is not configured. Add it under "
-                    "Knowledge → RAG pipeline settings before creating a PageIndex "
-                    "knowledge base."
-                ),
-            )
-
-    if provider == PAGEINDEX_OSS_PROVIDER:
-        from pathmind.services.rag.preflight import engine_preflight
-
-        report = engine_preflight(provider)
-        failed_checks = [
-            check
-            for check in report.get("checks", [])
-            if not check.get("optional") and not check.get("ok")
-        ]
-        if failed_checks:
-            details = "; ".join(
-                str(check.get("detail") or check.get("label") or "Requirement not met")
-                for check in failed_checks
-            )
-            raise HTTPException(
-                status_code=409, detail=f"PageIndex OSS preflight failed: {details}"
-            )
-
     if provider == GRAPHRAG_PROVIDER:
         from pathmind.services.rag.pipelines.graphrag.config import is_graphrag_available
 
@@ -854,34 +848,8 @@ def _resolve_embedding_form(value, provider: str, entry: dict | None = None):
 
 
 def _enforce_provider_formats(provider: str, files: list[UploadFile]) -> None:
-    """Reject files PageIndex's document endpoint does not accept, up front."""
-    if provider not in {PAGEINDEX_PROVIDER, PAGEINDEX_OSS_PROVIDER}:
-        return
-    from pathmind.services.rag.pipelines.pageindex.pipeline import (
-        OSS_SUPPORTED_EXTENSIONS,
-        SUPPORTED_EXTENSIONS,
-    )
-
-    extensions = (
-        OSS_SUPPORTED_EXTENSIONS if provider == PAGEINDEX_OSS_PROVIDER else SUPPORTED_EXTENSIONS
-    )
-
-    unsupported = [
-        f.filename
-        for f in files
-        if f.filename
-        and not (provider == PAGEINDEX_PROVIDER and f.filename.lower().endswith(".zip"))
-        and Path(f.filename).suffix.lower() not in extensions
-    ]
-    if unsupported:
-        supported = ", ".join(sorted(extensions))
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                f"PageIndex knowledge bases accept: {supported}. "
-                f"Unsupported: {', '.join(unsupported[:5])}."
-            ),
-        )
+    """Hook for engine-specific upload format limits (none for GraphRAG/LightRAG)."""
+    return
 
 
 def _resolve_registered_kb_name(manager: KnowledgeBaseManager, kb_name: str | None) -> str:
@@ -942,9 +910,6 @@ def _matching_index_is_valid(kb_name: str, matching_version: dict | None) -> boo
         return False
     try:
         from pathmind.services.rag.index_probe import inspect_provider_version
-        from pathmind.services.rag.pipelines.llamaindex.storage import (
-            validate_storage_embeddings,
-        )
 
         probe = inspect_provider_version(matching_version, DEFAULT_PROVIDER)
         if not probe.ready:
@@ -954,7 +919,6 @@ def _matching_index_is_valid(kb_name: str, matching_version: dict | None) -> boo
                 probe.failure_summary or probe.diagnostics,
             )
             return False
-        validate_storage_embeddings(Path(str(matching_version["storage_path"])))
         return True
     except Exception as exc:
         logger.warning(
@@ -1323,6 +1287,8 @@ async def get_rag_providers():
 
         providers = RAGService.list_providers()
         kb_config = get_kb_config_service()
+        role = str(getattr(get_current_user_or_none(), "role", "user") or "user")
+        staff = role in ("admin", "rnd")
         for provider in providers:
             modes = provider.get("modes") or []
             if modes:
@@ -1332,6 +1298,8 @@ async def get_rag_providers():
             # Whether an existing index for this engine can be linked in place
             # (self-contained on disk). Drives the "link existing folder" UI.
             provider["linkable"] = provider.get("id") in LINKABLE_PROVIDERS
+            # New KBs: GraphRAG is for the main tree (R&D/admin), LightRAG for everyone else.
+            provider["selectable"] = staff or provider.get("id") == default_provider_for_role(role)
         return {"providers": providers}
     except Exception as e:
         logger.error(f"Error getting RAG providers: {e}")
@@ -1368,161 +1336,6 @@ async def set_rag_provider_mode(provider: str, payload: ProviderModeUpdate):
 
     get_kb_config_service().set_provider_mode(provider, mode)
     return {"provider": provider, "mode": mode}
-
-
-class PageIndexConfigUpdate(BaseModel):
-    # Tri-state api_key: omit/None keeps the stored key, "" clears it, any other
-    # value replaces it — so the masked UI never round-trips the real secret.
-    api_key: str | None = None
-
-
-def _pageindex_config_payload() -> dict:
-    """PageIndex pipeline settings for the UI, with the API key redacted."""
-    from pathmind.services.config import get_runtime_settings_service
-
-    settings = get_runtime_settings_service().load_pageindex()
-    return {
-        "api_key_set": bool(settings.get("api_key")),
-        "configured": bool(settings.get("api_key")),
-    }
-
-
-@router.get("/knowledge-bases/rag-pipelines/pageindex/config")
-async def get_pageindex_pipeline_config():
-    """Read the PageIndex credential state (key redacted to a boolean)."""
-    try:
-        return _pageindex_config_payload()
-    except Exception as e:
-        logger.error(f"Error reading PageIndex config: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.put("/knowledge-bases/rag-pipelines/pageindex/config", dependencies=_ADMIN_ONLY)
-async def update_pageindex_pipeline_config(payload: PageIndexConfigUpdate):
-    """Persist the deployment-level PageIndex Cloud credential."""
-    try:
-        from pathmind.services.config import get_runtime_settings_service
-
-        service = get_runtime_settings_service()
-        current = service.load_pageindex(include_process_overrides=False)
-
-        api_key = current.get("api_key", "")
-        if payload.api_key is not None:
-            api_key = payload.api_key.strip()
-
-        service.save_pageindex({"api_key": api_key})
-
-        return _pageindex_config_payload()
-    except Exception as e:
-        logger.error(f"Error updating PageIndex config: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-class ImaConfigUpdate(BaseModel):
-    # Same tri-state as PageIndex for the secret half of the pair: omit/None
-    # keeps the stored key, "" clears it, any other value replaces it. The
-    # Client ID is not a secret and round-trips in the clear.
-    client_id: str | None = None
-    api_key: str | None = None
-
-
-def _ima_config_payload() -> dict:
-    """Account-level IMA credential state for the UI, with the key redacted."""
-    from pathmind.services.config import get_runtime_settings_service
-
-    settings = get_runtime_settings_service().load_ima()
-    client_id = str(settings.get("client_id") or "")
-    api_key_set = bool(settings.get("api_key"))
-    return {
-        "client_id": client_id,
-        "api_key_set": api_key_set,
-        "configured": bool(client_id) and api_key_set,
-    }
-
-
-@router.get("/knowledge-bases/rag-pipelines/ima/config")
-async def get_ima_pipeline_config():
-    """Read the account-level IMA credentials (key redacted to a boolean)."""
-    try:
-        return _ima_config_payload()
-    except Exception as e:
-        logger.error(f"Error reading IMA config: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.put("/knowledge-bases/rag-pipelines/ima/config", dependencies=_ADMIN_ONLY)
-async def update_ima_pipeline_config(payload: ImaConfigUpdate):
-    """Persist the account-level IMA Client ID / API key."""
-    try:
-        from pathmind.services.config import get_runtime_settings_service
-
-        service = get_runtime_settings_service()
-        current = service.load_ima(include_process_overrides=False)
-
-        client_id = current.get("client_id", "")
-        if payload.client_id is not None:
-            client_id = payload.client_id.strip()
-
-        api_key = current.get("api_key", "")
-        if payload.api_key is not None:
-            api_key = payload.api_key.strip()
-
-        service.save_ima({"client_id": client_id, "api_key": api_key})
-        return _ima_config_payload()
-    except Exception as e:
-        logger.error(f"Error updating IMA config: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-class LlamaIndexConfigUpdate(BaseModel):
-    """Partial update for the LlamaIndex engine knobs (omitted fields kept)."""
-
-    retrieval_profile: str | None = None
-    top_k: int | None = None
-    vector_top_k_multiplier: int | None = None
-    bm25_top_k_multiplier: int | None = None
-    reranker_model: str | None = None
-    rerank_top_k: int | None = None
-    vector_index_type: str | None = None
-    hnsw_m: int | None = None
-    hnsw_ef_construction: int | None = None
-    hnsw_ef_search: int | None = None
-    chunk_size: int | None = None
-    chunk_overlap: int | None = None
-    image_description_concurrency: int | None = None
-    image_description_timeout_seconds: int | None = None
-
-
-@router.get("/knowledge-bases/rag-pipelines/llamaindex/config")
-async def get_llamaindex_pipeline_config():
-    """Read the LlamaIndex engine's retrieval + chunking knobs."""
-    try:
-        from pathmind.services.config import get_runtime_settings_service
-
-        return get_runtime_settings_service().load_llamaindex()
-    except Exception as e:
-        logger.error(f"Error reading LlamaIndex config: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.put("/knowledge-bases/rag-pipelines/llamaindex/config", dependencies=_ADMIN_ONLY)
-async def update_llamaindex_pipeline_config(payload: LlamaIndexConfigUpdate):
-    """Persist the LlamaIndex engine knobs.
-
-    Retrieval knobs take effect on the next query; indexing knobs only affect
-    documents processed after the save.
-    """
-    try:
-        from pathmind.services.config import get_runtime_settings_service
-
-        service = get_runtime_settings_service()
-        current = service.load_llamaindex(include_process_overrides=False)
-        # Merge only the provided fields so partial saves never wipe others.
-        updates = payload.model_dump(exclude_none=True)
-        return service.save_llamaindex({**current, **updates})
-    except Exception as e:
-        logger.error(f"Error updating LlamaIndex config: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
 
 
 class GraphRagConfigUpdate(BaseModel):
@@ -1630,58 +1443,6 @@ async def update_lightrag_pipeline_config(payload: LightRagConfigUpdate):
         raise
     except Exception as e:
         logger.error(f"Error updating LightRAG config: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-class LightRagServerConfigUpdate(BaseModel):
-    """Reusable LightRAG Server defaults (individual KBs may override them)."""
-
-    server_url: str | None = None
-    api_key: str | None = None
-
-
-def _lightrag_server_config_payload() -> dict:
-    from pathmind.services.config import get_runtime_settings_service
-
-    settings = get_runtime_settings_service().load_lightrag_server()
-    server_url = str(settings.get("server_url") or "")
-    api_key_set = bool(settings.get("api_key"))
-    return {
-        "server_url": server_url,
-        "api_key_set": api_key_set,
-        "configured": bool(server_url),
-    }
-
-
-@router.get("/knowledge-bases/rag-pipelines/lightrag-server/config")
-async def get_lightrag_server_pipeline_config():
-    """Read reusable server defaults with the API key redacted."""
-    try:
-        return _lightrag_server_config_payload()
-    except Exception as e:
-        logger.error(f"Error reading LightRAG Server config: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.put("/knowledge-bases/rag-pipelines/lightrag-server/config", dependencies=_ADMIN_ONLY)
-async def update_lightrag_server_pipeline_config(payload: LightRagServerConfigUpdate):
-    """Persist reusable defaults without changing existing KB bindings."""
-    try:
-        from pathmind.services.config import get_runtime_settings_service
-        from pathmind.services.rag.pipelines.lightrag_server.config import normalize_base_url
-
-        service = get_runtime_settings_service()
-        current = service.load_lightrag_server()
-        server_url = current.get("server_url", "")
-        if payload.server_url is not None:
-            server_url = normalize_base_url(payload.server_url)
-        api_key = current.get("api_key", "")
-        if payload.api_key is not None:
-            api_key = payload.api_key.strip()
-        service.save_lightrag_server({"server_url": server_url, "api_key": api_key})
-        return _lightrag_server_config_payload()
-    except Exception as e:
-        logger.error(f"Error updating LightRAG Server config: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -1997,7 +1758,7 @@ async def update_kb_config(kb_name: str, config: dict):
                 detail="Change a knowledge base's embedding model through re-indexing.",
             )
         if "rag_provider" in config:
-            requested_provider = _validate_registered_provider(config.get("rag_provider"))
+            requested_provider = _new_kb_provider(config.get("rag_provider"))
             service = get_kb_config_service()
             current_config = service.get_kb_config(kb_name)
             current_provider = _validate_registered_provider(
@@ -2152,13 +1913,13 @@ async def connect_marginnote4(payload: ConnectMarginNote4Request):
 
 class ProbeFolderRequest(BaseModel):
     folder_path: str
-    rag_provider: str = DEFAULT_PROVIDER
+    rag_provider: str = ""
 
 
 class ConnectFolderRequest(BaseModel):
     name: str
     folder_path: str
-    rag_provider: str = DEFAULT_PROVIDER
+    rag_provider: str = ""
 
 
 @router.post("/knowledge-bases/probe-folder", dependencies=_ADMIN_ONLY)
@@ -2176,7 +1937,7 @@ async def probe_linked_folder_route(payload: ProbeFolderRequest):
         folder = assert_path_allowed(folder_path)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    result = probe_linked_folder(str(folder), payload.rag_provider)
+    result = probe_linked_folder(str(folder), _new_kb_provider(payload.rag_provider))
     return result.to_dict()
 
 
@@ -2198,7 +1959,7 @@ async def connect_linked_folder_route(payload: ConnectFolderRequest):
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    result = probe_linked_folder(str(folder), payload.rag_provider)
+    result = probe_linked_folder(str(folder), _new_kb_provider(payload.rag_provider))
     if not result.ok:
         raise HTTPException(status_code=400, detail=result.error or "Folder is not linkable.")
 
@@ -2228,343 +1989,6 @@ async def connect_linked_folder_route(payload: ConnectFolderRequest):
         "external_path": entry["external_path"],
         "rag_provider": entry["rag_provider"],
         "warnings": result.warnings,
-    }
-
-
-class ProbeLightRagServerRequest(BaseModel):
-    server_url: str
-    api_key: str = ""
-    use_saved_api_key: bool = False
-
-
-class ConnectLightRagServerRequest(BaseModel):
-    name: str
-    server_url: str
-    api_key: str = ""
-    search_mode: str = ""
-
-
-class ProbeWeKnoraRequest(BaseModel):
-    server_url: str
-    api_key: str
-    knowledge_base_id: str
-
-
-class ConnectWeKnoraRequest(BaseModel):
-    name: str
-    server_url: str
-    api_key: str
-    knowledge_base_id: str
-
-
-@router.post("/knowledge-bases/probe-lightrag-server", dependencies=_ADMIN_ONLY)
-async def probe_lightrag_server_route(payload: ProbeLightRagServerRequest):
-    """Test-connect to an external LightRAG server before binding a KB to it.
-
-    Returns the verdict (reachable? is it a LightRAG server? API key accepted?)
-    so the UI can confirm before any registration happens. Creates nothing.
-    """
-    from pathmind.services.rag.pipelines.lightrag_server.probe import probe_server
-
-    server_url = (payload.server_url or "").strip()
-    if not server_url:
-        raise HTTPException(status_code=400, detail="server_url is required.")
-    api_key = payload.api_key or ""
-    if payload.use_saved_api_key and not api_key:
-        from pathmind.services.config import load_lightrag_server_settings
-        from pathmind.services.rag.pipelines.lightrag_server.config import normalize_base_url
-
-        defaults = load_lightrag_server_settings()
-        if normalize_base_url(defaults.get("server_url")) == normalize_base_url(server_url):
-            api_key = str(defaults.get("api_key") or "")
-    result = await probe_server(server_url, api_key)
-    return result.to_dict()
-
-
-@router.post("/knowledge-bases/connect-lightrag-server", dependencies=_ADMIN_ONLY)
-async def connect_lightrag_server_route(payload: ConnectLightRagServerRequest):
-    """Connect an external LightRAG server as a retrieval-only knowledge base.
-
-    Re-probes server-side (never trusts the client's verdict), then registers a
-    pointer (``type: lightrag_server``). Retrieval is offloaded to the server's
-    ``/query`` endpoint — no copy, no local index.
-    """
-    from pathmind.services.rag.pipelines.lightrag_server.config import SUPPORTED_MODES
-    from pathmind.services.rag.pipelines.lightrag_server.probe import probe_server
-
-    name = (payload.name or "").strip()
-    server_url = (payload.server_url or "").strip()
-    if not name or not server_url:
-        raise HTTPException(status_code=400, detail="Both name and server_url are required.")
-
-    api_key = payload.api_key or ""
-    if not api_key:
-        from pathmind.services.config import load_lightrag_server_settings
-        from pathmind.services.rag.pipelines.lightrag_server.config import normalize_base_url
-
-        defaults = load_lightrag_server_settings()
-        if normalize_base_url(defaults.get("server_url")) == normalize_base_url(server_url):
-            api_key = str(defaults.get("api_key") or "")
-
-    result = await probe_server(server_url, api_key)
-    if not result.ok:
-        raise HTTPException(
-            status_code=400, detail=result.error or "Could not connect to the LightRAG server."
-        )
-
-    search_mode = (payload.search_mode or "").strip().lower()
-    if search_mode and search_mode not in SUPPORTED_MODES:
-        search_mode = ""
-
-    try:
-        manager = get_kb_manager()
-        entry = manager.register_lightrag_server_kb(
-            name,
-            result.base_url,
-            api_key=api_key,
-            search_mode=search_mode,
-        )
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error connecting LightRAG server: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-    return {
-        "status": "connected",
-        "name": name,
-        "server_url": entry["server_url"],
-        "rag_provider": entry["rag_provider"],
-    }
-
-
-@router.post("/knowledge-bases/probe-weknora", dependencies=[Depends(require_admin)])
-async def probe_weknora_route(payload: ProbeWeKnoraRequest):
-    """Validate a WeKnora server and knowledge-base binding without registering."""
-    from pathmind.services.rag.pipelines.weknora.probe import probe_weknora
-
-    server_url = (payload.server_url or "").strip()
-    knowledge_base_id = (payload.knowledge_base_id or "").strip()
-    if not server_url or not knowledge_base_id:
-        raise HTTPException(
-            status_code=400,
-            detail="Both server_url and knowledge_base_id are required.",
-        )
-    result = await probe_weknora(
-        server_url,
-        payload.api_key or "",
-        knowledge_base_id,
-    )
-    return result.to_dict()
-
-
-@router.post("/knowledge-bases/connect-weknora", dependencies=[Depends(require_admin)])
-async def connect_weknora_route(payload: ConnectWeKnoraRequest):
-    """Connect a self-hosted WeKnora knowledge base for retrieval only."""
-    from pathmind.services.rag.pipelines.weknora.probe import probe_weknora
-
-    name = (payload.name or "").strip()
-    server_url = (payload.server_url or "").strip()
-    knowledge_base_id = (payload.knowledge_base_id or "").strip()
-    if not name or not server_url or not knowledge_base_id:
-        raise HTTPException(
-            status_code=400,
-            detail="name, server_url, and knowledge_base_id are required.",
-        )
-
-    result = await probe_weknora(
-        server_url,
-        payload.api_key or "",
-        knowledge_base_id,
-    )
-    if not result.ok:
-        raise HTTPException(
-            status_code=400,
-            detail=result.error or "Could not connect to the WeKnora knowledge base.",
-        )
-
-    try:
-        manager = get_kb_manager()
-        entry = manager.register_weknora_kb(
-            name,
-            result.base_url,
-            payload.api_key or "",
-            result.knowledge_base_id,
-        )
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error connecting WeKnora knowledge base: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-    return {
-        "status": "connected",
-        "name": name,
-        "server_url": entry["server_url"],
-        "knowledge_base_id": entry["knowledge_base_id"],
-        "rag_provider": entry["rag_provider"],
-    }
-
-
-class ListImaRequest(BaseModel):
-    # Empty means "use the account-level credentials from the engine settings",
-    # so the connect flow never has to re-send what is already stored.
-    client_id: str = ""
-    api_key: str = ""
-    cursor: str = ""
-    # IMA documents this call's page size as 1..50; the picker asks for one
-    # screenful and pages for the rest.
-    limit: int = Field(default=20, ge=1, le=MAX_PAGE_LIMIT)
-
-
-class ImaKnowledgeBaseSummary(BaseModel):
-    id: str
-    name: str
-    description: str | None = None
-
-
-class ListImaResponse(BaseModel):
-    knowledge_bases: list[ImaKnowledgeBaseSummary]
-    next_cursor: str
-    is_end: bool
-
-
-def _resolve_ima_credentials(client_id: str, api_key: str) -> ImaCredentials:
-    """A request's credentials, falling back to the account-level pair.
-
-    A request that supplies only one half is not silently completed from the
-    account pair: mixing two accounts' halves would fail at IMA with a confusing
-    verdict.
-    """
-    supplied = ImaCredentials(client_id=(client_id or "").strip(), api_key=(api_key or "").strip())
-    if supplied.client_id or supplied.api_key:
-        return supplied
-    return get_account_credentials()
-
-
-@router.post("/knowledge-bases/list-ima", dependencies=_ADMIN_ONLY, response_model=ListImaResponse)
-async def list_ima_route(payload: ListImaRequest):
-    """List IMA knowledge bases without storing or echoing credentials."""
-    credentials = _resolve_ima_credentials(payload.client_id, payload.api_key)
-    if not credentials.complete:
-        raise HTTPException(status_code=400, detail="Client ID and API key are required.")
-
-    client = ImaClient(
-        ImaConfig(
-            client_id=credentials.client_id,
-            api_key=credentials.api_key,
-            knowledge_base_id="",
-        )
-    )
-    try:
-        return await client.search_knowledge_bases(
-            query="",
-            cursor=payload.cursor.strip(),
-            limit=payload.limit,
-        )
-    except ImaAuthError:
-        raise HTTPException(status_code=401, detail="IMA rejected the supplied credentials.")
-    except ImaRateLimitError:
-        raise HTTPException(status_code=429, detail="IMA rate limit reached. Try again shortly.")
-    except ImaAPIError:
-        raise HTTPException(status_code=502, detail="IMA returned an invalid response.")
-    except Exception:
-        raise HTTPException(status_code=502, detail="Could not reach Tencent IMA.")
-
-
-class ProbeImaRequest(BaseModel):
-    client_id: str = ""
-    api_key: str = ""
-    knowledge_base_id: str
-
-
-class ConnectImaRequest(BaseModel):
-    name: str
-    client_id: str = ""
-    api_key: str = ""
-    knowledge_base_id: str
-
-
-@router.post("/knowledge-bases/probe-ima", dependencies=_ADMIN_ONLY)
-async def probe_ima_route(payload: ProbeImaRequest):
-    """Test-connect to a Tencent IMA knowledge base before binding a KB to it.
-
-    Returns the verdict (credentials accepted? does the library id resolve, and
-    what is it called?) so the UI can confirm before any registration happens.
-    Creates nothing.
-    """
-    from pathmind.services.rag.pipelines.ima.probe import probe_knowledge_base
-
-    credentials = _resolve_ima_credentials(payload.client_id, payload.api_key)
-    result = await probe_knowledge_base(
-        credentials.client_id,
-        credentials.api_key,
-        payload.knowledge_base_id,
-    )
-    return result.to_dict()
-
-
-@router.post("/knowledge-bases/connect-ima", dependencies=_ADMIN_ONLY)
-async def connect_ima_route(payload: ConnectImaRequest):
-    """Connect a Tencent IMA knowledge base as a retrieval-only knowledge base.
-
-    Re-probes server-side (never trusts the client's verdict), then registers a
-    pointer (``type: ima``). Retrieval is offloaded to IMA's ``search_knowledge``
-    OpenAPI — no copy, no local index.
-
-    Credentials the request omits come from the account-level settings and are
-    *not* copied onto the KB, so rotating them there keeps this KB working.
-    """
-    from pathmind.services.rag.pipelines.ima.probe import probe_knowledge_base
-
-    name = (payload.name or "").strip()
-    if not name:
-        raise HTTPException(status_code=400, detail="Knowledge base name is required.")
-
-    overrides = ImaCredentials(
-        client_id=payload.client_id.strip(),
-        api_key=payload.api_key.strip(),
-    )
-    credentials = _resolve_ima_credentials(payload.client_id, payload.api_key)
-    result = await probe_knowledge_base(
-        credentials.client_id,
-        credentials.api_key,
-        payload.knowledge_base_id,
-    )
-    if not result.ok:
-        raise HTTPException(
-            status_code=400,
-            detail=result.error or "Could not connect to the IMA knowledge base.",
-        )
-
-    try:
-        manager = get_kb_manager()
-        entry = manager.register_ima_kb(
-            name,
-            overrides.client_id,
-            overrides.api_key,
-            payload.knowledge_base_id,
-            description=result.description or "",
-        )
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except HTTPException:
-        raise
-    except Exception as exc:
-        # Never echo or log an upstream message from this credential-bearing
-        # flow. The exception class is enough for server-side diagnosis.
-        logger.error("Error connecting IMA knowledge base (%s)", type(exc).__name__)
-        raise HTTPException(status_code=500, detail="Could not connect the IMA knowledge base.")
-
-    return {
-        "status": "connected",
-        "name": name,
-        "knowledge_base_id": entry["knowledge_base_id"],
-        "rag_provider": entry["rag_provider"],
     }
 
 
@@ -3020,13 +2444,6 @@ async def delete_kb_file(kb_name: str, filename: str):
 
     kb_dir = manager.get_knowledge_base_path(kb_name)
     provider = _validate_registered_provider(kb_entry.get("rag_provider") or DEFAULT_PROVIDER)
-    if provider in {PAGEINDEX_PROVIDER, PAGEINDEX_OSS_PROVIDER}:
-        from pathmind.services.rag.factory import get_pipeline
-
-        await get_pipeline(provider, kb_base_dir=str(manager.base_dir)).remove_document(
-            kb_name,
-            target.name,
-        )
     try:
         released = target.stat().st_size if target.is_file() else 0
     except OSError:
@@ -3290,6 +2707,7 @@ async def upload_files(
             rag_provider=kb_provider,
             owner=get_current_user(),
         )
+        _schedule_branch_enrichment(background_tasks, uploaded_file_paths)
 
         return {
             "message": f"Uploaded {len(uploaded_files)} files. Processing in background.",
@@ -3311,8 +2729,7 @@ async def create_knowledge_base(
     background_tasks: BackgroundTasks,
     name: str = Form(...),
     files: list[UploadFile] = File(default=[]),
-    rag_provider: str = Form(DEFAULT_PROVIDER),
-    pageindex_mode: str = Form(""),
+    rag_provider: str = Form(""),
     search_mode: str = Form(""),
     rel_paths: list[str] = Form(None),
     indexing_llm: str = Form(""),
@@ -3330,7 +2747,7 @@ async def create_knowledge_base(
         if name in manager.list_knowledge_bases():
             raise HTTPException(status_code=400, detail=f"Knowledge base '{name}' already exists")
 
-        rag_provider = _validate_registered_provider(rag_provider)
+        rag_provider = _new_kb_provider(rag_provider)
         if files:
             _indexing_credit_precheck()
         embedding_selection, embedding_config = _resolve_embedding_form(
@@ -3346,16 +2763,6 @@ async def create_knowledge_base(
             raise HTTPException(
                 status_code=400,
                 detail="indexing_llm is supported only for built-in LightRAG.",
-            )
-        pageindex_mode = str(pageindex_mode or "").strip().lower()
-        if rag_provider == PAGEINDEX_OSS_PROVIDER and pageindex_mode not in {
-            "",
-            "flash",
-            "standard",
-        }:
-            raise HTTPException(
-                status_code=400,
-                detail="PageIndex OSS mode must be 'flash', 'standard', or omitted.",
             )
         from contextlib import nullcontext
 
@@ -3417,8 +2824,6 @@ async def create_knowledge_base(
                 manager.config["knowledge_bases"][name].update(
                     binding_fields(embedding_selection, embedding_config)
                 )
-            if rag_provider == PAGEINDEX_OSS_PROVIDER and pageindex_mode:
-                manager.config["knowledge_bases"][name]["pageindex_mode"] = pageindex_mode
             if search_mode:
                 manager.config["knowledge_bases"][name]["search_mode"] = search_mode
             if indexing_snapshot is not None:
@@ -3515,6 +2920,7 @@ async def create_knowledge_base(
         )
 
         background_tasks.add_task(run_initialization_task, initializer, task_id)
+        _schedule_branch_enrichment(background_tasks, uploaded_file_paths)
 
         logger.info(f"KB '{name}' created, processing {len(uploaded_files)} files in background")
 

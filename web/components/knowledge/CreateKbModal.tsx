@@ -1,9 +1,9 @@
-"use client";
+'use client'
 
-import type { EmbeddingModelSelection } from "@/features/knowledge/model/types";
+import type { EmbeddingModelSelection } from '@/features/knowledge/model/types'
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { useTranslation } from "react-i18next";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useTranslation } from 'react-i18next'
 import {
   AlertTriangle,
   Check,
@@ -15,119 +15,67 @@ import {
   Loader2,
   Plus,
   Server,
-} from "lucide-react";
-import { useEmbeddingModels } from "@/hooks/useEmbeddingModels";
-import EmbeddingModelSelector from "./EmbeddingModelSelector";
-import Modal from "@/components/common/Modal";
-import { useImaConnection } from "@/hooks/useImaConnection";
-import { useLLMOptions } from "@/hooks/useLLMOptions";
-import {
-  getGraphRagConfig,
-  getLightRagConfig,
-  getLightRagServerConfig,
-  getLlamaIndexConfig,
-  getPageIndexConfig,
-  probeLightRagServer,
-  type LightRagServerProbe,
-} from "@/features/knowledge/api/engines";
+} from 'lucide-react'
+import { useEmbeddingModels } from '@/hooks/useEmbeddingModels'
+import EmbeddingModelSelector from './EmbeddingModelSelector'
+import Modal from '@/components/common/Modal'
+import { useLLMOptions } from '@/hooks/useLLMOptions'
+import { getGraphRagConfig, getLightRagConfig } from '@/features/knowledge/api/engines'
 import {
   probeLinkedFolder,
-  probeWeKnora,
   type KnowledgeUploadPolicy,
   type IndexingLLMSelection,
   type LinkedFolderProbe,
   type RagProviderSummary,
-  type WeKnoraProbe,
-} from "@/features/knowledge/api/catalog";
-import {
-  createProviders,
-  IMA_PROVIDER,
-  linkSourceEnabled,
-} from "@/lib/ima-connection";
-import {
-  uploadPolicyForProvider,
-  validateFiles,
-} from "@/lib/knowledge-helpers";
-import { forbiddenKbNameChars, isValidKbName } from "@/lib/kb-name";
-import FileDropZone from "./FileDropZone";
-import ImaConnectionFields from "./ImaConnectionFields";
-import KnowledgeEngineIcon from "./KnowledgeEngineIcon";
-import IndexingModelSelector, {
-  selectionFromLightRagDefault,
-} from "./IndexingModelSelector";
+} from '@/features/knowledge/api/catalog'
+import { uploadPolicyForProvider, validateFiles } from '@/lib/knowledge-helpers'
+import { forbiddenKbNameChars, isValidKbName } from '@/lib/kb-name'
+import FileDropZone from './FileDropZone'
+import KnowledgeEngineIcon from './KnowledgeEngineIcon'
+import IndexingModelSelector, { selectionFromLightRagDefault } from './IndexingModelSelector'
 
-const OBSIDIAN_SOURCE = "obsidian";
-const MARGINNOTE4_SOURCE = "marginnote4";
-const LIGHTRAG_SERVER_PROVIDER = "lightrag-server";
-const WEKNORA_PROVIDER = "weknora";
-const EXAMPLE_INDEX_PATH = "/Users/you/knowledge_bases/my-kb";
-const EXAMPLE_VAULT_PATH = "/Users/you/Documents/MyVault";
-const EXAMPLE_SERVER_URL = "http://localhost:9621";
+const OBSIDIAN_SOURCE = 'obsidian'
+const MARGINNOTE4_SOURCE = 'marginnote4'
+const EXAMPLE_INDEX_PATH = '/Users/you/knowledge_bases/my-kb'
+const EXAMPLE_VAULT_PATH = '/Users/you/Documents/MyVault'
 
-type Mode = "new" | "link";
+type Mode = 'new' | 'link'
 
 interface CreateKbModalProps {
-  isOpen: boolean;
-  onClose: () => void;
-  providers: RagProviderSummary[];
-  uploadPolicy: KnowledgeUploadPolicy;
+  isOpen: boolean
+  onClose: () => void
+  providers: RagProviderSummary[]
+  uploadPolicy: KnowledgeUploadPolicy
   onCreate: (params: {
-    name: string;
-    provider: string;
-    files: File[];
-    pageindexMode?: "flash" | "standard";
-    searchMode?: string;
-    indexingLLM?: IndexingLLMSelection;
-    embeddingModel?: EmbeddingModelSelection;
-  }) => Promise<void>;
+    name: string
+    provider: string
+    files: File[]
+    searchMode?: string
+    indexingLLM?: IndexingLLMSelection
+    embeddingModel?: EmbeddingModelSelection
+  }) => Promise<void>
   /** Link a pre-built engine index folder in place (no copy, no re-index). */
   onConnectLinkedFolder: (params: {
-    name: string;
-    folderPath: string;
-    provider: string;
-  }) => Promise<void>;
+    name: string
+    folderPath: string
+    provider: string
+  }) => Promise<void>
   /** Connect a live Obsidian vault (no index). */
-  onConnectObsidian: (params: {
-    name: string;
-    vaultPath: string;
-  }) => Promise<void>;
-  /** Connect an external LightRAG server (retrieval only, no local index). */
-  onConnectLightRagServer: (params: {
-    name: string;
-    serverUrl: string;
-    apiKey?: string;
-    mode?: string;
-  }) => Promise<void>;
-  /** Connect a self-hosted WeKnora knowledge base (retrieval only). */
-  onConnectWeKnora: (params: {
-    name: string;
-    serverUrl: string;
-    apiKey: string;
-    knowledgeBaseId: string;
-  }) => Promise<void>;
+  onConnectObsidian: (params: { name: string; vaultPath: string }) => Promise<void>
   /** Connect a MarginNote 4 library (its Add-on pushes objects in; no index). */
-  onConnectMarginNote4: (params: { name: string }) => Promise<void>;
-  /** Connect a Tencent IMA knowledge base (retrieval only, no local index). */
-  onConnectIma: (params: {
-    name: string;
-    clientId: string;
-    apiKey: string;
-    knowledgeBaseId: string;
-  }) => Promise<void>;
+  onConnectMarginNote4: (params: { name: string }) => Promise<void>
   /** Open the RAG pipeline settings (to add a missing API key). */
-  onConfigureProvider?: (providerId: string) => void;
+  onConfigureProvider?: (providerId: string) => void
   /** Open straight into a given mode (e.g. "link" from the Obsidian card). */
-  initialMode?: Mode;
+  initialMode?: Mode
   /** Pre-select a link source (engine id or "obsidian") when opening in link mode. */
-  initialSource?: string;
+  initialSource?: string
   /**
    * False for regular accounts: no "Link existing" (server folders, Obsidian,
-   * MarginNote, IMA) and no remote retrieval servers — only new uploads.
+   * MarginNote) — only new uploads.
    */
-  allowServerSources?: boolean;
+  allowServerSources?: boolean
 }
-
-const REMOTE_ONLY_PROVIDERS = new Set([LIGHTRAG_SERVER_PROVIDER, WEKNORA_PROVIDER, IMA_PROVIDER]);
 
 export default function CreateKbModal({
   isOpen,
@@ -137,148 +85,96 @@ export default function CreateKbModal({
   onCreate,
   onConnectLinkedFolder,
   onConnectObsidian,
-  onConnectLightRagServer,
-  onConnectWeKnora,
   onConnectMarginNote4,
-  onConnectIma,
   onConfigureProvider,
-  initialMode: requestedMode = "new",
+  initialMode: requestedMode = 'new',
   initialSource,
   allowServerSources = true,
 }: CreateKbModalProps) {
-  const { t } = useTranslation();
+  const { t } = useTranslation()
+  // Learners and educators index their documents with LightRAG only.
   const providers = useMemo(
-    () =>
-      allowServerSources
-        ? allProviders
-        : allProviders.filter((p) => !REMOTE_ONLY_PROVIDERS.has(p.id)),
-    [allProviders, allowServerSources],
-  );
-  const initialMode: Mode = allowServerSources ? requestedMode : "new";
-  const [mode, setMode] = useState<Mode>("new");
-  const [name, setName] = useState("");
-  const [provider, setProvider] = useState("llamaindex");
-  const [files, setFiles] = useState<File[]>([]);
-  const [pageIndexMode, setPageIndexMode] = useState<"" | "flash" | "standard">(
-    "",
-  );
+    () => allProviders.filter(item => item.selectable !== false),
+    [allProviders],
+  )
+  const initialMode: Mode = allowServerSources ? requestedMode : 'new'
+  const [mode, setMode] = useState<Mode>('new')
+  const [name, setName] = useState('')
+  const [provider, setProvider] = useState('lightrag')
+  const [files, setFiles] = useState<File[]>([])
   // Link mode: the source is either an engine id or the Obsidian sentinel.
-  const [linkSource, setLinkSource] = useState(OBSIDIAN_SOURCE);
-  const [folderPath, setFolderPath] = useState("");
-  const [probe, setProbe] = useState<LinkedFolderProbe | null>(null);
-  const [probing, setProbing] = useState(false);
-  // LightRAG Server engine (new mode): a connection instead of an upload.
-  const [serverUrl, setServerUrl] = useState("");
-  const [apiKey, setApiKey] = useState("");
-  const [retrievalMode, setRetrievalMode] = useState("");
-  const [serverDefault, setServerDefault] = useState<{
-    server_url: string;
-    api_key_set: boolean;
-  } | null>(null);
-  const [engineDefaultSummary, setEngineDefaultSummary] = useState<string[]>(
-    [],
-  );
-  const [serverProbe, setServerProbe] = useState<LightRagServerProbe | null>(
-    null,
-  );
-  const [serverProbing, setServerProbing] = useState(false);
-  const [weKnoraKnowledgeBaseId, setWeKnoraKnowledgeBaseId] = useState("");
-  const [weKnoraProbe, setWeKnoraProbe] = useState<WeKnoraProbe | null>(null);
-  const [weKnoraProbing, setWeKnoraProbing] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
-  const [indexingLLM, setIndexingLLM] = useState<IndexingLLMSelection | null>(
-    null,
-  );
+  const [linkSource, setLinkSource] = useState(OBSIDIAN_SOURCE)
+  const [folderPath, setFolderPath] = useState('')
+  const [probe, setProbe] = useState<LinkedFolderProbe | null>(null)
+  const [probing, setProbing] = useState(false)
+  const [apiKey, setApiKey] = useState('')
+  const [retrievalMode, setRetrievalMode] = useState('')
+  const [engineDefaultSummary, setEngineDefaultSummary] = useState<string[]>([])
+  const [submitting, setSubmitting] = useState(false)
+  const [indexingLLM, setIndexingLLM] = useState<IndexingLLMSelection | null>(null)
   const [lightRagConfig, setLightRagConfig] = useState<Awaited<
     ReturnType<typeof getLightRagConfig>
-  > | null>(null);
-  const [lightRagConfigLoaded, setLightRagConfigLoaded] = useState(false);
-  const [lightRagConfigError, setLightRagConfigError] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const linkIsObsidian = linkSource === OBSIDIAN_SOURCE;
-  const linkIsMarginNote = linkSource === MARGINNOTE4_SOURCE;
-  const linkIsIma = linkSource === IMA_PROVIDER;
-  const imaConnection = useImaConnection({
-    name,
-    onNameChange: setName,
-    onError: setError,
-    active: linkIsIma,
-  });
-  const llmCatalog = useLLMOptions();
+  > | null>(null)
+  const [lightRagConfigLoaded, setLightRagConfigLoaded] = useState(false)
+  const [lightRagConfigError, setLightRagConfigError] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const linkIsObsidian = linkSource === OBSIDIAN_SOURCE
+  const linkIsMarginNote = linkSource === MARGINNOTE4_SOURCE
+  const llmCatalog = useLLMOptions()
 
-  const firstLinkable = providers.find((p) => p.linkable)?.id;
+  const firstLinkable = providers.find(p => p.linkable)?.id
 
   const handleClose = () => {
-    imaConnection.reset();
-    onClose();
-  };
+    onClose()
+  }
 
   const handleModeChange = (nextMode: Mode) => {
-    if (nextMode !== "link") imaConnection.reset();
-    setMode(nextMode);
-  };
+    setMode(nextMode)
+  }
 
   const handleLinkSourceChange = (source: string) => {
-    if (source !== IMA_PROVIDER) imaConnection.reset();
-    setLinkSource(source);
-  };
+    setLinkSource(source)
+  }
 
   // Reset the form only on the closed → open transition. While the modal is
   // open, background indexing polls replace `providers` (and friends) every
   // few seconds, and a data refresh must never wipe user input (#691).
-  const wasOpenRef = useRef(false);
+  const wasOpenRef = useRef(false)
   useEffect(() => {
-    const justOpened = isOpen && !wasOpenRef.current;
-    wasOpenRef.current = isOpen;
-    if (!justOpened) return;
-    setMode(initialMode);
-    setName("");
-    setFiles([]);
-    setPageIndexMode("");
-    setError(null);
-    const initialProvider = createProviders(providers).find(
-      (item) => item.id === initialSource,
-    )?.id;
-    setProvider(
-      initialProvider || createProviders(providers)[0]?.id || "llamaindex",
-    );
-    setLinkSource(initialSource || firstLinkable || OBSIDIAN_SOURCE);
-    setFolderPath("");
-    setProbe(null);
-    setProbing(false);
-    setServerUrl("");
-    setApiKey("");
-    setRetrievalMode("");
-    setServerDefault(null);
-    setServerProbe(null);
-    setServerProbing(false);
-    setWeKnoraKnowledgeBaseId("");
-    setWeKnoraProbe(null);
-    setWeKnoraProbing(false);
-    setIndexingLLM(null);
-    setLightRagConfig(null);
-    setLightRagConfigLoaded(false);
-    setLightRagConfigError(false);
-  }, [isOpen, providers, firstLinkable, initialMode, initialSource]);
+    const justOpened = isOpen && !wasOpenRef.current
+    wasOpenRef.current = isOpen
+    if (!justOpened) return
+    setMode(initialMode)
+    setName('')
+    setFiles([])
+    setError(null)
+    const initialProvider = providers.find(item => item.id === initialSource)?.id
+    setProvider(initialProvider || providers[0]?.id || 'lightrag')
+    setLinkSource(initialSource || firstLinkable || OBSIDIAN_SOURCE)
+    setFolderPath('')
+    setProbe(null)
+    setProbing(false)
+    setRetrievalMode('')
+    setIndexingLLM(null)
+    setLightRagConfig(null)
+    setLightRagConfigLoaded(false)
+    setLightRagConfigError(false)
+  }, [isOpen, providers, firstLinkable, initialMode, initialSource])
 
   useEffect(() => {
     if (
       !isOpen ||
-      mode !== "new" ||
-      provider !== "lightrag" ||
+      mode !== 'new' ||
+      provider !== 'lightrag' ||
       indexingLLM ||
       !lightRagConfigLoaded ||
       !lightRagConfig
     ) {
-      return;
+      return
     }
     setIndexingLLM(
-      selectionFromLightRagDefault(
-        llmCatalog.options,
-        lightRagConfig,
-        llmCatalog.activeDefault,
-      ),
-    );
+      selectionFromLightRagDefault(llmCatalog.options, lightRagConfig, llmCatalog.activeDefault)
+    )
   }, [
     indexingLLM,
     isOpen,
@@ -288,302 +184,159 @@ export default function CreateKbModal({
     lightRagConfigLoaded,
     mode,
     provider,
-  ]);
+  ])
 
   useEffect(() => {
-    if (!isOpen || mode !== "new") return;
-    let cancelled = false;
+    if (!isOpen || mode !== 'new') return
+    let cancelled = false
 
     const load = async () => {
       try {
-        let summary: string[] = [];
-        if (provider === "llamaindex") {
-          const config = await getLlamaIndexConfig();
+        let summary: string[] = []
+        if (provider === 'graphrag') {
+          const config = await getGraphRagConfig()
           summary = [
-            `${t("Retrieval profile")}: ${config.retrieval_profile}`,
-            `${t("Results per query")}: ${config.top_k}`,
-            `${t("Chunk size")}: ${config.chunk_size} / ${t("Chunk overlap")}: ${config.chunk_overlap}`,
-          ];
-        } else if (provider === "graphrag") {
-          const config = await getGraphRagConfig();
-          summary = [
-            `${t("Response style")}: ${config.response_type}`,
-            `${t("Community level")}: ${config.community_level}`,
-          ];
-        } else if (provider === "lightrag") {
-          const config = await getLightRagConfig();
+            `${t('Response style')}: ${config.response_type}`,
+            `${t('Community level')}: ${config.community_level}`,
+          ]
+        } else if (provider === 'lightrag') {
+          const config = await getLightRagConfig()
           if (!cancelled) {
-            setLightRagConfig(config);
-            setLightRagConfigLoaded(true);
-            setLightRagConfigError(false);
+            setLightRagConfig(config)
+            setLightRagConfigLoaded(true)
+            setLightRagConfigError(false)
           }
           summary = [
-            `${t("Results per query")}: ${config.top_k}`,
-            `${t("Files in parallel")}: ${config.max_concurrent_files}`,
-            `${t("Concurrent LLM calls")}: ${config.llm_model_max_async}`,
-          ];
-        } else if (provider === "pageindex") {
-          const config = await getPageIndexConfig();
-          summary = [
-            config.configured ? t("API key configured") : t("API key missing"),
-          ];
-        } else if (provider === LIGHTRAG_SERVER_PROVIDER) {
-          const config = await getLightRagServerConfig();
-          if (!cancelled) {
-            setServerDefault(config);
-            setServerUrl(config.server_url);
-          }
-          summary = [
-            config.server_url || t("No default server URL"),
-            config.api_key_set ? t("API key configured") : t("No API key"),
-          ];
-        } else if (provider === "pageindex-oss") {
-          summary = [t("Uses the globally active chat model")];
+            `${t('Results per query')}: ${config.top_k}`,
+            `${t('Files in parallel')}: ${config.max_concurrent_files}`,
+            `${t('Concurrent LLM calls')}: ${config.llm_model_max_async}`,
+          ]
         }
-        if (!cancelled) setEngineDefaultSummary(summary);
+        if (!cancelled) setEngineDefaultSummary(summary)
       } catch {
         if (!cancelled) {
-          setEngineDefaultSummary([]);
-          if (provider === "lightrag") {
-            setLightRagConfigLoaded(true);
-            setLightRagConfigError(true);
+          setEngineDefaultSummary([])
+          if (provider === 'lightrag') {
+            setLightRagConfigLoaded(true)
+            setLightRagConfigError(true)
           }
         }
       }
-    };
+    }
 
-    setEngineDefaultSummary([]);
-    if (provider !== LIGHTRAG_SERVER_PROVIDER) setServerDefault(null);
-    void load();
+    setEngineDefaultSummary([])
+    void load()
     return () => {
-      cancelled = true;
-    };
-  }, [isOpen, mode, provider, t]);
+      cancelled = true
+    }
+  }, [isOpen, mode, provider, t])
 
   // A fresh path / source invalidates a stale probe verdict.
   useEffect(() => {
-    setProbe(null);
-  }, [folderPath, linkSource]);
-
-  // A fresh URL / key invalidates a stale server connection test.
-  useEffect(() => {
-    setServerProbe(null);
-  }, [serverUrl, apiKey]);
-
-  // A fresh URL, key, or remote KB id invalidates a stale WeKnora verdict.
-  useEffect(() => {
-    setWeKnoraProbe(null);
-  }, [serverUrl, apiKey, weKnoraKnowledgeBaseId]);
+    setProbe(null)
+  }, [folderPath, linkSource])
 
   // ---- New mode (build a fresh index) ----------------------------------
-  const activeProvider = providers.find((p) => p.id === provider);
+  const activeProvider = providers.find(p => p.id === provider)
   const providerNeedsKey =
-    !!activeProvider?.requires_api_key && activeProvider?.configured === false;
-  const providerUnavailable = activeProvider?.configured === false;
-  const isPageIndexCloud = provider === "pageindex";
-  const isPageIndexOSS = provider === "pageindex-oss";
-  const isLightRagServer = provider === LIGHTRAG_SERVER_PROVIDER;
-  const isWeKnora = provider === WEKNORA_PROVIDER;
-  const modeOptions = activeProvider?.modes ?? [];
+    !!activeProvider?.requires_api_key && activeProvider?.configured === false
+  const providerUnavailable = activeProvider?.configured === false
+  const modeOptions = activeProvider?.modes ?? []
 
-  const policyForProvider = uploadPolicyForProvider(uploadPolicy, provider);
+  const policyForProvider = uploadPolicyForProvider(uploadPolicy, provider)
 
-  const selection = validateFiles(files, policyForProvider, t);
+  const selection = validateFiles(files, policyForProvider, t)
 
   // ---- Link mode (mount an existing folder) ----------------------------
-  const trimmed = name.trim();
-  const trimmedPath = folderPath.trim();
-
-  const trimmedServerUrl = serverUrl.trim();
+  const trimmed = name.trim()
+  const trimmedPath = folderPath.trim()
 
   // Mirrors the backend rule so the name is rejected under the field rather
   // than as an English 400 after Create. The connect-* paths give no error at
   // all today, which is how a "/" name got registered in the first place.
-  const nameProblems = forbiddenKbNameChars(trimmed);
+  const nameProblems = forbiddenKbNameChars(trimmed)
 
-  const needsEmbedding = ["llamaindex", "lightrag", "graphrag"].includes(
-    provider,
-  );
-  const embeddingCatalog = useEmbeddingModels(
-    undefined,
-    isOpen && mode === "new" && needsEmbedding,
-  );
+  const needsEmbedding = ['lightrag', 'graphrag'].includes(provider)
+  const embeddingCatalog = useEmbeddingModels(undefined, isOpen && mode === 'new' && needsEmbedding)
 
   const canSubmit = (() => {
-    if (submitting) return false;
-    if (!trimmed) return false;
-    if (!isValidKbName(trimmed)) return false;
-    if (mode === "new") {
-      if (isLightRagServer) {
-        // The connection must pass the test before a KB is bound to it.
-        return !!trimmedServerUrl && !!serverProbe?.ok;
-      }
-      if (isWeKnora) {
-        return (
-          !!trimmedServerUrl &&
-          !!apiKey.trim() &&
-          !!weKnoraKnowledgeBaseId.trim() &&
-          !!weKnoraProbe?.ok
-        );
-      }
+    if (submitting) return false
+    if (!trimmed) return false
+    if (!isValidKbName(trimmed)) return false
+    if (mode === 'new') {
       if (
         needsEmbedding &&
-        (!embeddingCatalog.selection ||
-          embeddingCatalog.loading ||
-          embeddingCatalog.error)
+        (!embeddingCatalog.selection || embeddingCatalog.loading || embeddingCatalog.error)
       )
-        return false;
-      if (provider === "lightrag" && !indexingLLM) return false;
-      return !providerUnavailable;
+        return false
+      if (provider === 'lightrag' && !indexingLLM) return false
+      return !providerUnavailable
     }
-    if (linkIsIma) return imaConnection.canSubmit;
-    if (linkIsMarginNote) return true;
-    if (!trimmedPath) return false;
-    if (linkIsObsidian) return true;
+    if (linkIsMarginNote) return true
+    if (!trimmedPath) return false
+    if (linkIsObsidian) return true
     // An engine index must pass the probe before it can be linked.
-    return !!probe?.ok;
-  })();
+    return !!probe?.ok
+  })()
 
   const handleProbe = async () => {
-    if (!trimmedPath || linkIsObsidian || probing) return;
-    setProbing(true);
-    setError(null);
+    if (!trimmedPath || linkIsObsidian || probing) return
+    setProbing(true)
+    setError(null)
     try {
       const result = await probeLinkedFolder({
         folderPath: trimmedPath,
         provider: linkSource,
-      });
-      setProbe(result);
+      })
+      setProbe(result)
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(err instanceof Error ? err.message : String(err))
     } finally {
-      setProbing(false);
+      setProbing(false)
     }
-  };
-
-  const handleTestServer = async () => {
-    if (!trimmedServerUrl || serverProbing) return;
-    setServerProbing(true);
-    setError(null);
-    try {
-      const result = await probeLightRagServer({
-        serverUrl: trimmedServerUrl,
-        apiKey: apiKey.trim(),
-        useSavedApiKey:
-          !apiKey.trim() &&
-          !!serverDefault?.api_key_set &&
-          trimmedServerUrl.replace(/\/+$/, "") === serverDefault.server_url,
-      });
-      setServerProbe(result);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setServerProbing(false);
-    }
-  };
-
-  const handleTestWeKnora = async () => {
-    if (
-      !trimmedServerUrl ||
-      !apiKey.trim() ||
-      !weKnoraKnowledgeBaseId.trim() ||
-      weKnoraProbing
-    ) {
-      return;
-    }
-    setWeKnoraProbing(true);
-    setError(null);
-    try {
-      const result = await probeWeKnora({
-        serverUrl: trimmedServerUrl,
-        apiKey: apiKey.trim(),
-        knowledgeBaseId: weKnoraKnowledgeBaseId.trim(),
-      });
-      setWeKnoraProbe(result);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setWeKnoraProbing(false);
-    }
-  };
+  }
 
   const handleSubmit = async () => {
-    if (!canSubmit) return;
-    setSubmitting(true);
-    setError(null);
+    if (!canSubmit) return
+    setSubmitting(true)
+    setError(null)
     try {
-      if (mode === "new") {
-        if (isLightRagServer) {
-          await onConnectLightRagServer({
-            name: trimmed,
-            serverUrl: trimmedServerUrl,
-            apiKey: apiKey.trim(),
-            mode: retrievalMode,
-          });
-        } else if (isWeKnora) {
-          await onConnectWeKnora({
-            name: trimmed,
-            serverUrl: trimmedServerUrl,
-            apiKey: apiKey.trim(),
-            knowledgeBaseId: weKnoraKnowledgeBaseId.trim(),
-          });
-        } else {
-          await onCreate({
-            name: trimmed,
-            provider,
-            files: selection.validFiles,
-            pageindexMode:
-              isPageIndexOSS && pageIndexMode ? pageIndexMode : undefined,
-            searchMode: retrievalMode || undefined,
-            embeddingModel: needsEmbedding
-              ? embeddingCatalog.selection || undefined
-              : undefined,
-            indexingLLM:
-              provider === "lightrag" ? indexingLLM || undefined : undefined,
-          });
-        }
-      } else if (linkIsIma) {
-        await onConnectIma({
+      if (mode === 'new') {
+        await onCreate({
           name: trimmed,
-          // Empty when the engine's account credentials are used — the server
-          // resolves them and the KB stores no copy.
-          clientId: imaConnection.submittedClientId,
-          apiKey: imaConnection.submittedApiKey,
-          knowledgeBaseId: imaConnection.knowledgeBaseId,
-        });
+          provider,
+          files: selection.validFiles,
+          searchMode: retrievalMode || undefined,
+          embeddingModel: needsEmbedding ? embeddingCatalog.selection || undefined : undefined,
+          indexingLLM: provider === 'lightrag' ? indexingLLM || undefined : undefined,
+        })
       } else if (linkIsMarginNote) {
-        await onConnectMarginNote4({ name: trimmed });
+        await onConnectMarginNote4({ name: trimmed })
       } else if (linkIsObsidian) {
-        await onConnectObsidian({ name: trimmed, vaultPath: trimmedPath });
+        await onConnectObsidian({ name: trimmed, vaultPath: trimmedPath })
       } else {
         await onConnectLinkedFolder({
           name: trimmed,
           folderPath: trimmedPath,
           provider: linkSource,
-        });
+        })
       }
-      handleClose();
+      handleClose()
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(err instanceof Error ? err.message : String(err))
     } finally {
-      setSubmitting(false);
+      setSubmitting(false)
     }
-  };
+  }
 
   const submitLabel =
-    mode === "new"
-      ? isLightRagServer || isWeKnora
-        ? t("Connect")
-        : t("Create")
-      : linkIsObsidian || linkIsIma || linkIsMarginNote
-        ? t("Connect")
-        : t("Link");
+    mode === 'new' ? t('Create') : linkIsObsidian || linkIsMarginNote ? t('Connect') : t('Link')
 
   return (
     <Modal
       isOpen={isOpen}
       onClose={submitting ? () => {} : handleClose}
-      title={t("Create knowledge base")}
+      title={t('Create knowledge base')}
       titleIcon={<Plus size={16} />}
       width="lg"
       closeOnBackdrop={!submitting}
@@ -596,7 +349,7 @@ export default function CreateKbModal({
             disabled={submitting}
             className="rounded-md px-3 py-1.5 text-[12.5px] font-medium text-[var(--muted-foreground)] transition-colors hover:bg-[var(--muted)] hover:text-[var(--foreground)] disabled:opacity-40"
           >
-            {t("Cancel")}
+            {t('Cancel')}
           </button>
           <button
             type="button"
@@ -606,7 +359,7 @@ export default function CreateKbModal({
           >
             {submitting ? (
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            ) : mode === "new" && !isLightRagServer && !isWeKnora ? (
+            ) : mode === 'new' ? (
               <Plus size={14} />
             ) : (
               <Link2 size={14} />
@@ -619,40 +372,35 @@ export default function CreateKbModal({
       <div className="space-y-4 px-5 py-4">
         {/* New vs. link existing */}
         {allowServerSources && (
-          <ModeToggle
-            mode={mode}
-            onChange={handleModeChange}
-            disabled={submitting}
-            t={t}
-          />
+          <ModeToggle mode={mode} onChange={handleModeChange} disabled={submitting} t={t} />
         )}
 
         <div>
           <label className="mb-1 block text-[11px] font-medium uppercase tracking-wide text-[var(--muted-foreground)]">
-            {t("Knowledge base name")}
+            {t('Knowledge base name')}
           </label>
           <input
             value={name}
-            onChange={(event) => setName(event.target.value)}
+            onChange={event => setName(event.target.value)}
             autoFocus
             disabled={submitting}
-            placeholder={t("e.g. project-papers")}
+            placeholder={t('e.g. project-papers')}
             aria-invalid={nameProblems.length > 0}
             className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-[13px] text-[var(--foreground)] outline-none transition-colors focus:border-[var(--foreground)]/25 disabled:opacity-50"
           />
           {nameProblems.length > 0 && (
             <p className="mt-1 text-[11px] text-[var(--destructive)]">
               {t(
-                "A knowledge base name cannot contain {{chars}} — these separate paths and URLs.",
-                { chars: nameProblems.join(" ") },
+                'A knowledge base name cannot contain {{chars}} — these separate paths and URLs.',
+                { chars: nameProblems.join(' ') }
               )}
             </p>
           )}
         </div>
 
-        {mode === "new" ? (
+        {mode === 'new' ? (
           <NewModeFields
-            providers={createProviders(providers)}
+            providers={providers}
             provider={provider}
             setProvider={setProvider}
             submitting={submitting}
@@ -664,22 +412,15 @@ export default function CreateKbModal({
             modeOptions={modeOptions}
             retrievalMode={retrievalMode}
             setRetrievalMode={setRetrievalMode}
-            isPageIndexCloud={isPageIndexCloud}
-            isPageIndexOSS={isPageIndexOSS}
-            pageIndexMode={pageIndexMode}
-            setPageIndexMode={setPageIndexMode}
             files={files}
             setFiles={setFiles}
             policyForProvider={policyForProvider}
             indexingModelField={
               <div className="space-y-4">
                 {needsEmbedding && (
-                  <EmbeddingModelSelector
-                    catalog={embeddingCatalog}
-                    disabled={submitting}
-                  />
+                  <EmbeddingModelSelector catalog={embeddingCatalog} disabled={submitting} />
                 )}
-                {provider === "lightrag" ? (
+                {provider === 'lightrag' ? (
                   <IndexingModelSelector
                     options={llmCatalog.options}
                     selection={indexingLLM}
@@ -687,10 +428,7 @@ export default function CreateKbModal({
                     error={llmCatalog.error}
                     defaultUnavailable={
                       lightRagConfigLoaded &&
-                      !!(
-                        lightRagConfig?.llm_profile_id ||
-                        lightRagConfig?.llm_model_id
-                      ) &&
+                      !!(lightRagConfig?.llm_profile_id || lightRagConfig?.llm_model_id) &&
                       !indexingLLM
                     }
                     defaultLoadError={lightRagConfigError}
@@ -700,41 +438,6 @@ export default function CreateKbModal({
                 ) : null}
               </div>
             }
-            connectionForm={
-              isLightRagServer ? (
-                <LightRagServerFields
-                  serverUrl={serverUrl}
-                  setServerUrl={setServerUrl}
-                  apiKey={apiKey}
-                  setApiKey={setApiKey}
-                  hasSavedApiKey={!!serverDefault?.api_key_set}
-                  usingSavedDefault={
-                    !!serverDefault?.server_url &&
-                    serverUrl.trim().replace(/\/+$/, "") ===
-                      serverDefault.server_url
-                  }
-                  submitting={submitting}
-                  probing={serverProbing}
-                  probe={serverProbe}
-                  onTest={handleTestServer}
-                  t={t}
-                />
-              ) : isWeKnora ? (
-                <WeKnoraFields
-                  serverUrl={serverUrl}
-                  setServerUrl={setServerUrl}
-                  apiKey={apiKey}
-                  setApiKey={setApiKey}
-                  knowledgeBaseId={weKnoraKnowledgeBaseId}
-                  setKnowledgeBaseId={setWeKnoraKnowledgeBaseId}
-                  submitting={submitting}
-                  probing={weKnoraProbing}
-                  probe={weKnoraProbe}
-                  onTest={handleTestWeKnora}
-                  t={t}
-                />
-              ) : null
-            }
             t={t}
           />
         ) : (
@@ -743,7 +446,6 @@ export default function CreateKbModal({
             linkSource={linkSource}
             setLinkSource={handleLinkSourceChange}
             linkIsObsidian={linkIsObsidian}
-            linkIsIma={linkIsIma}
             linkIsMarginNote={linkIsMarginNote}
             folderPath={folderPath}
             setFolderPath={setFolderPath}
@@ -751,14 +453,6 @@ export default function CreateKbModal({
             probing={probing}
             probe={probe}
             onProbe={handleProbe}
-            connectionForm={
-              linkIsIma ? (
-                <ImaConnectionFields
-                  connection={imaConnection}
-                  submitting={submitting}
-                />
-              ) : null
-            }
             t={t}
           />
         )}
@@ -772,10 +466,10 @@ export default function CreateKbModal({
         )}
       </div>
     </Modal>
-  );
+  )
 }
 
-type TFn = (key: string, options?: Record<string, unknown>) => string;
+type TFn = (key: string, options?: Record<string, unknown>) => string
 
 function ModeToggle({
   mode,
@@ -783,37 +477,35 @@ function ModeToggle({
   disabled,
   t,
 }: {
-  mode: Mode;
-  onChange: (mode: Mode) => void;
-  disabled: boolean;
-  t: TFn;
+  mode: Mode
+  onChange: (mode: Mode) => void
+  disabled: boolean
+  t: TFn
 }) {
   const options: {
-    id: Mode;
-    label: string;
-    hint: string;
-    icon: typeof Plus;
+    id: Mode
+    label: string
+    hint: string
+    icon: typeof Plus
   }[] = [
     {
-      id: "new",
-      label: t("Create new"),
-      hint: t("Upload documents and build a fresh index."),
+      id: 'new',
+      label: t('Create new'),
+      hint: t('Upload documents and build a fresh index.'),
       icon: Plus,
     },
     {
-      id: "link",
-      label: t("Link existing"),
-      hint: t(
-        "Reuse an index you already built — read in place, no upload or re-index.",
-      ),
+      id: 'link',
+      label: t('Link existing'),
+      hint: t('Reuse an index you already built — read in place, no upload or re-index.'),
       icon: Link2,
     },
-  ];
+  ]
   return (
     <div className="grid grid-cols-2 gap-2">
-      {options.map((opt) => {
-        const selected = mode === opt.id;
-        const Icon = opt.icon;
+      {options.map(opt => {
+        const selected = mode === opt.id
+        const Icon = opt.icon
         return (
           <button
             key={opt.id}
@@ -822,8 +514,8 @@ function ModeToggle({
             onClick={() => onChange(opt.id)}
             className={`flex flex-col gap-1 rounded-2xl border p-3 text-left transition-colors disabled:opacity-50 ${
               selected
-                ? "border-[var(--primary)] bg-[var(--primary)]/5"
-                : "border-[var(--border)] hover:border-[var(--ring)]"
+                ? 'border-[var(--primary)] bg-[var(--primary)]/5'
+                : 'border-[var(--border)] hover:border-[var(--ring)]'
             }`}
           >
             <span className="flex items-center gap-1.5 text-[13px] font-medium text-[var(--foreground)]">
@@ -834,10 +526,10 @@ function ModeToggle({
               {opt.hint}
             </span>
           </button>
-        );
+        )
       })}
     </div>
-  );
+  )
 }
 
 function NewModeFields({
@@ -853,68 +545,55 @@ function NewModeFields({
   providerUnavailable,
   providerNeedsKey,
   onConfigureProvider,
-  isPageIndexCloud,
-  isPageIndexOSS,
-  pageIndexMode,
-  setPageIndexMode,
   files,
   setFiles,
   policyForProvider,
   indexingModelField,
-  connectionForm,
   t,
 }: {
-  providers: RagProviderSummary[];
-  provider: string;
-  setProvider: (id: string) => void;
-  activeProvider?: RagProviderSummary;
-  engineDefaultSummary: string[];
-  modeOptions: string[];
-  retrievalMode: string;
-  setRetrievalMode: (mode: string) => void;
-  submitting: boolean;
-  providerUnavailable: boolean;
-  providerNeedsKey: boolean;
-  onConfigureProvider?: (providerId: string) => void;
-  isPageIndexCloud: boolean;
-  isPageIndexOSS: boolean;
-  pageIndexMode: "" | "flash" | "standard";
-  setPageIndexMode: (mode: "" | "flash" | "standard") => void;
-  files: File[];
-  setFiles: (files: File[]) => void;
-  policyForProvider: KnowledgeUploadPolicy;
-  indexingModelField?: ReactNode;
-  /** When set, replaces the upload step (e.g. a server connection form). */
-  connectionForm?: ReactNode;
-  t: TFn;
+  providers: RagProviderSummary[]
+  provider: string
+  setProvider: (id: string) => void
+  activeProvider?: RagProviderSummary
+  engineDefaultSummary: string[]
+  modeOptions: string[]
+  retrievalMode: string
+  setRetrievalMode: (mode: string) => void
+  submitting: boolean
+  providerUnavailable: boolean
+  providerNeedsKey: boolean
+  onConfigureProvider?: (providerId: string) => void
+  files: File[]
+  setFiles: (files: File[]) => void
+  policyForProvider: KnowledgeUploadPolicy
+  indexingModelField?: ReactNode
+  t: TFn
 }) {
-  const readinessReason = providers.find(
-    (item) => item.id === provider,
-  )?.readiness_reason;
+  const readinessReason = providers.find(item => item.id === provider)?.readiness_reason
   return (
     <>
       <div>
         <label className="mb-1.5 block text-[11px] font-medium uppercase tracking-wide text-[var(--muted-foreground)]">
-          {t("Index engine")}
+          {t('Index engine')}
         </label>
         <div className="grid gap-2 sm:grid-cols-2">
-          {providers.map((p) => {
-            const selected = provider === p.id;
-            const needsKey = !!p.requires_api_key && p.configured === false;
-            const unavailable = p.configured === false && !p.requires_api_key;
+          {providers.map(p => {
+            const selected = provider === p.id
+            const needsKey = !!p.requires_api_key && p.configured === false
+            const unavailable = p.configured === false && !p.requires_api_key
             return (
               <div key={p.id} className="flex flex-col gap-1">
                 <button
                   type="button"
                   disabled={submitting}
                   onClick={() => {
-                    setProvider(p.id);
-                    setRetrievalMode("");
+                    setProvider(p.id)
+                    setRetrievalMode('')
                   }}
                   className={`group flex w-full flex-1 flex-col gap-1 rounded-2xl border p-3 text-left transition-colors disabled:opacity-50 ${
                     selected
-                      ? "border-[var(--primary)] bg-[var(--primary)]/5"
-                      : "border-[var(--border)] hover:border-[var(--ring)]"
+                      ? 'border-[var(--primary)] bg-[var(--primary)]/5'
+                      : 'border-[var(--border)] hover:border-[var(--ring)]'
                   }`}
                 >
                   <div className="flex items-center justify-between gap-2">
@@ -924,11 +603,11 @@ function NewModeFields({
                     </span>
                     {needsKey ? (
                       <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-950/30 dark:text-amber-300">
-                        {t("Needs key")}
+                        {t('Needs key')}
                       </span>
                     ) : unavailable ? (
                       <span className="inline-flex items-center gap-1 rounded-full bg-[var(--muted)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--muted-foreground)]">
-                        {t("Not installed")}
+                        {t('Not installed')}
                       </span>
                     ) : selected ? (
                       <Check className="h-3.5 w-3.5 text-[var(--primary)]" />
@@ -938,19 +617,8 @@ function NewModeFields({
                     {p.description}
                   </span>
                 </button>
-                {p.id === "pageindex" && (
-                  <a
-                    href="https://dash.pageindex.ai/api-keys"
-                    target="_blank"
-                    rel="noreferrer"
-                    className="inline-flex items-center gap-1 px-1 text-[10.5px] text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
-                  >
-                    {t("PageIndex API plans")}
-                    <ExternalLink className="h-3 w-3" />
-                  </a>
-                )}
               </div>
-            );
+            )
           })}
         </div>
         {providerUnavailable && (
@@ -958,12 +626,10 @@ function NewModeFields({
             <span className="flex items-center gap-1.5">
               <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
               {providerNeedsKey
-                ? t(
-                    "This engine needs an API key. Configure it before creating.",
-                  )
+                ? t('This engine needs an API key. Configure it before creating.')
                 : t(
                     readinessReason ||
-                      "This engine isn't ready on the server. Check its requirements before creating.",
+                      "This engine isn't ready on the server. Check its requirements before creating."
                   )}
             </span>
             {providerNeedsKey && onConfigureProvider && (
@@ -972,7 +638,7 @@ function NewModeFields({
                 onClick={() => onConfigureProvider(provider)}
                 className="shrink-0 rounded-md px-2 py-1 text-[11.5px] font-medium text-amber-900 underline-offset-2 hover:underline dark:text-amber-100"
               >
-                {t("Configure")}
+                {t('Configure')}
               </button>
             )}
           </div>
@@ -984,12 +650,10 @@ function NewModeFields({
           <div className="flex items-start justify-between gap-3">
             <div>
               <div className="text-[12px] font-medium text-[var(--foreground)]">
-                {t("Engine defaults")}
+                {t('Engine defaults')}
               </div>
               <p className="mt-0.5 text-[11px] leading-relaxed text-[var(--muted-foreground)]">
-                {t(
-                  "This knowledge base starts with the saved engine configuration.",
-                )}
+                {t('This knowledge base starts with the saved engine configuration.')}
               </p>
             </div>
             {onConfigureProvider && (
@@ -998,14 +662,14 @@ function NewModeFields({
                 onClick={() => onConfigureProvider(provider)}
                 className="inline-flex shrink-0 items-center gap-1 text-[11.5px] font-medium text-[var(--primary)] hover:underline"
               >
-                {t("Edit defaults")}
+                {t('Edit defaults')}
                 <ChevronRight className="h-3 w-3" />
               </button>
             )}
           </div>
           {engineDefaultSummary.length > 0 && (
             <div className="mt-2 flex flex-wrap gap-1.5">
-              {engineDefaultSummary.map((item) => (
+              {engineDefaultSummary.map(item => (
                 <span
                   key={item}
                   className="rounded-md border border-[var(--border)] bg-[var(--background)] px-2 py-1 text-[10.5px] text-[var(--muted-foreground)]"
@@ -1027,20 +691,20 @@ function NewModeFields({
       {modeOptions.length > 0 && (
         <div>
           <label className="mb-1 block text-[11px] font-medium uppercase tracking-wide text-[var(--muted-foreground)]">
-            {t("Retrieval mode")}
+            {t('Retrieval mode')}
           </label>
           <select
             value={retrievalMode}
-            onChange={(event) => setRetrievalMode(event.target.value)}
+            onChange={event => setRetrievalMode(event.target.value)}
             disabled={submitting}
             className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-[12.5px] text-[var(--foreground)] outline-none transition-colors focus:border-[var(--foreground)]/25 disabled:opacity-50"
           >
             <option value="">
-              {t("Use engine default: {{mode}}", {
+              {t('Use engine default: {{mode}}', {
                 mode: activeProvider?.default_mode || modeOptions[0],
               })}
             </option>
-            {modeOptions.map((item) => (
+            {modeOptions.map(item => (
               <option key={item} value={item}>
                 {item}
               </option>
@@ -1048,341 +712,31 @@ function NewModeFields({
           </select>
           <p className="mt-1 text-[11px] text-[var(--muted-foreground)]">
             {t(
-              "This override applies only to this knowledge base; the engine default stays unchanged.",
+              'This override applies only to this knowledge base; the engine default stays unchanged.'
             )}
           </p>
         </div>
       )}
-
-      {isPageIndexOSS && (
-        <div>
-          <label className="mb-1 block text-[11px] font-medium uppercase tracking-wide text-[var(--muted-foreground)]">
-            {t("Index mode")}
-            <span className="ml-2 normal-case tracking-normal text-[var(--muted-foreground)]/80">
-              · {t("optional")}
-            </span>
-          </label>
-          <select
-            value={pageIndexMode}
-            onChange={(event) =>
-              setPageIndexMode(event.target.value as "" | "flash" | "standard")
-            }
-            disabled={submitting}
-            className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-[12.5px] text-[var(--foreground)] outline-none transition-colors focus:border-[var(--foreground)]/25 disabled:opacity-50"
-          >
-            <option value="">
-              {t("Default — Flash, summaries and full optimization")}
-            </option>
-            <option value="flash">{t("Flash")}</option>
-            <option value="standard">{t("Standard")}</option>
-          </select>
-          <p className="mt-1 text-[11px] text-[var(--muted-foreground)]">
-            {t(
-              "Uses the globally active LLM credential. Leaving this unset delegates to the PageIndex SDK default.",
-            )}
-          </p>
-        </div>
-      )}
-
-      {connectionForm ?? (
-        <div>
-          <label className="mb-2 block text-[11px] font-medium uppercase tracking-wide text-[var(--muted-foreground)]">
-            {t("Initial documents")}
-            <span className="ml-1 normal-case tracking-normal text-[var(--muted-foreground)]/80">
-              ({t("optional")})
-            </span>
-            {(isPageIndexCloud || isPageIndexOSS) && (
-              <span className="ml-2 normal-case tracking-normal text-[var(--muted-foreground)]/80">
-                ·{" "}
-                {isPageIndexOSS
-                  ? t(
-                      "PDF only — use PageIndex Cloud for Office, Markdown or CSV",
-                    )
-                  : t("PDF, Office, text and Markdown")}
-              </span>
-            )}
-          </label>
-          <FileDropZone
-            files={files}
-            onChange={setFiles}
-            uploadPolicy={policyForProvider}
-            disabled={submitting}
-          />
-          <p className="mt-1.5 text-[11px] text-[var(--muted-foreground)]">
-            {t(
-              "Skip for now — you can add GitHub sources or upload documents after creation.",
-            )}
-          </p>
-        </div>
-      )}
-    </>
-  );
-}
-
-function LightRagServerFields({
-  serverUrl,
-  setServerUrl,
-  apiKey,
-  setApiKey,
-  hasSavedApiKey,
-  usingSavedDefault,
-  submitting,
-  probing,
-  probe,
-  onTest,
-  t,
-}: {
-  serverUrl: string;
-  setServerUrl: (value: string) => void;
-  apiKey: string;
-  setApiKey: (value: string) => void;
-  hasSavedApiKey: boolean;
-  usingSavedDefault: boolean;
-  submitting: boolean;
-  probing: boolean;
-  probe: LightRagServerProbe | null;
-  onTest: () => void;
-  t: TFn;
-}) {
-  return (
-    <div className="space-y-3">
-      <div>
-        <label className="mb-1 block text-[11px] font-medium uppercase tracking-wide text-[var(--muted-foreground)]">
-          {t("Server URL")}
-        </label>
-        <div className="flex gap-2">
-          <input
-            value={serverUrl}
-            onChange={(event) => setServerUrl(event.target.value)}
-            disabled={submitting}
-            placeholder={EXAMPLE_SERVER_URL}
-            className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 font-mono text-[12.5px] text-[var(--foreground)] outline-none transition-colors focus:border-[var(--foreground)]/25 disabled:opacity-50"
-          />
-          <button
-            type="button"
-            onClick={onTest}
-            disabled={submitting || probing || serverUrl.trim().length === 0}
-            className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-[var(--border)] px-3 text-[12px] font-medium text-[var(--foreground)] transition-colors hover:border-[var(--ring)] disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            {probing ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <Server className="h-3.5 w-3.5" />
-            )}
-            {t("Test connection")}
-          </button>
-        </div>
-        <p className="mt-1 text-[11px] text-[var(--muted-foreground)]">
-          {t(
-            "The base URL of your running LightRAG server. Documents are indexed there — nothing is uploaded or copied.",
-          )}
-        </p>
-        {usingSavedDefault && (
-          <p className="mt-1 inline-flex items-center gap-1 text-[11px] font-medium text-emerald-700 dark:text-emerald-300">
-            <Check className="h-3 w-3" />
-            {t("Using saved engine default · editable for this KB")}
-          </p>
-        )}
-      </div>
 
       <div>
-        <label className="mb-1 block text-[11px] font-medium uppercase tracking-wide text-[var(--muted-foreground)]">
-          {t("API key")}
-          <span className="ml-2 normal-case tracking-normal text-[var(--muted-foreground)]/80">
-            · {t("optional")}
+        <label className="mb-2 block text-[11px] font-medium uppercase tracking-wide text-[var(--muted-foreground)]">
+          {t('Initial documents')}
+          <span className="ml-1 normal-case tracking-normal text-[var(--muted-foreground)]/80">
+            ({t('optional')})
           </span>
         </label>
-        <input
-          value={apiKey}
-          onChange={(event) => setApiKey(event.target.value)}
+        <FileDropZone
+          files={files}
+          onChange={setFiles}
+          uploadPolicy={policyForProvider}
           disabled={submitting}
-          type="password"
-          autoComplete="off"
-          placeholder={t("Only if your server requires one")}
-          className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-[12.5px] text-[var(--foreground)] outline-none transition-colors focus:border-[var(--foreground)]/25 disabled:opacity-50"
         />
-      </div>
-
-      {hasSavedApiKey && !apiKey && usingSavedDefault && (
-        <p className="-mt-2 text-[11px] text-[var(--muted-foreground)]">
-          {t(
-            "The saved API key will be used. Enter a value only to override it.",
-          )}
-        </p>
-      )}
-
-      {probe && <ServerProbeVerdict probe={probe} t={t} />}
-    </div>
-  );
-}
-
-function ServerProbeVerdict({
-  probe,
-  t,
-}: {
-  probe: LightRagServerProbe;
-  t: TFn;
-}) {
-  if (!probe.ok) {
-    return (
-      <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-[12px] text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300">
-        <span className="flex items-center gap-1.5 font-medium">
-          <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-          {t("Could not connect")}
-        </span>
-        {probe.error && <p className="mt-1 leading-relaxed">{probe.error}</p>}
-      </div>
-    );
-  }
-  return (
-    <div className="space-y-1 rounded-lg border border-[var(--border)] bg-[var(--muted)]/40 px-3 py-2.5 text-[12px]">
-      <div className="flex items-center gap-1.5 font-medium text-emerald-700 dark:text-emerald-300">
-        <Check className="h-3.5 w-3.5 shrink-0" />
-        {t("Connected to LightRAG server")}
-      </div>
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11.5px] text-[var(--muted-foreground)]">
-        {probe.core_version && (
-          <span>{t("Core {{version}}", { version: probe.core_version })}</span>
-        )}
-        <span>
-          {probe.auth_required ? t("API key accepted") : t("Open access")}
-        </span>
-      </div>
-    </div>
-  );
-}
-
-function WeKnoraFields({
-  serverUrl,
-  setServerUrl,
-  apiKey,
-  setApiKey,
-  knowledgeBaseId,
-  setKnowledgeBaseId,
-  submitting,
-  probing,
-  probe,
-  onTest,
-  t,
-}: {
-  serverUrl: string;
-  setServerUrl: (value: string) => void;
-  apiKey: string;
-  setApiKey: (value: string) => void;
-  knowledgeBaseId: string;
-  setKnowledgeBaseId: (value: string) => void;
-  submitting: boolean;
-  probing: boolean;
-  probe: WeKnoraProbe | null;
-  onTest: () => void;
-  t: TFn;
-}) {
-  const testDisabled =
-    submitting ||
-    probing ||
-    serverUrl.trim().length === 0 ||
-    apiKey.trim().length === 0 ||
-    knowledgeBaseId.trim().length === 0;
-
-  return (
-    <div className="space-y-3">
-      <div>
-        <label className="mb-1 block text-[11px] font-medium uppercase tracking-wide text-[var(--muted-foreground)]">
-          {t("Server URL")}
-        </label>
-        <div className="flex gap-2">
-          <input
-            value={serverUrl}
-            onChange={(event) => setServerUrl(event.target.value)}
-            disabled={submitting}
-            placeholder={EXAMPLE_SERVER_URL}
-            className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 font-mono text-[12.5px] text-[var(--foreground)] outline-none transition-colors focus:border-[var(--foreground)]/25 disabled:opacity-50"
-          />
-          <button
-            type="button"
-            onClick={onTest}
-            disabled={testDisabled}
-            className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-[var(--border)] px-3 text-[12px] font-medium text-[var(--foreground)] transition-colors hover:border-[var(--ring)] disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            {probing ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <Server className="h-3.5 w-3.5" />
-            )}
-            {t("Test connection")}
-          </button>
-        </div>
-        <p className="mt-1 text-[11px] text-[var(--muted-foreground)]">
-          {t(
-            "The base URL of your self-hosted WeKnora deployment. Documents remain there; PathMind only runs retrieval searches.",
-          )}
+        <p className="mt-1.5 text-[11px] text-[var(--muted-foreground)]">
+          {t('Skip for now — you can add GitHub sources or upload documents after creation.')}
         </p>
       </div>
-
-      <div>
-        <label className="mb-1 block text-[11px] font-medium uppercase tracking-wide text-[var(--muted-foreground)]">
-          {t("WeKnora API key")}
-        </label>
-        <input
-          value={apiKey}
-          onChange={(event) => setApiKey(event.target.value)}
-          disabled={submitting}
-          type="password"
-          autoComplete="off"
-          placeholder={t("Required to access your WeKnora knowledge base")}
-          className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-[12.5px] text-[var(--foreground)] outline-none transition-colors focus:border-[var(--foreground)]/25 disabled:opacity-50"
-        />
-      </div>
-
-      <div>
-        <label className="mb-1 block text-[11px] font-medium uppercase tracking-wide text-[var(--muted-foreground)]">
-          {t("WeKnora knowledge base ID")}
-        </label>
-        <div className="relative">
-          <Database className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[var(--muted-foreground)]" />
-          <input
-            value={knowledgeBaseId}
-            onChange={(event) => setKnowledgeBaseId(event.target.value)}
-            disabled={submitting}
-            placeholder={t("WeKnora knowledge base ID")}
-            className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] py-2 pl-9 pr-3 font-mono text-[12.5px] text-[var(--foreground)] outline-none transition-colors focus:border-[var(--foreground)]/25 disabled:opacity-50"
-          />
-        </div>
-      </div>
-
-      {probe && <WeKnoraProbeVerdict probe={probe} t={t} />}
-    </div>
-  );
-}
-
-function WeKnoraProbeVerdict({ probe, t }: { probe: WeKnoraProbe; t: TFn }) {
-  if (!probe.ok) {
-    return (
-      <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-[12px] text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300">
-        <span className="flex items-center gap-1.5 font-medium">
-          <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-          {t("Could not connect")}
-        </span>
-        {probe.error && <p className="mt-1 leading-relaxed">{probe.error}</p>}
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-1 rounded-lg border border-[var(--border)] bg-[var(--muted)]/40 px-3 py-2.5 text-[12px]">
-      <div className="flex items-center gap-1.5 font-medium text-emerald-700 dark:text-emerald-300">
-        <Check className="h-3.5 w-3.5 shrink-0" />
-        {t("Connected to WeKnora")}
-      </div>
-      <div className="text-[11.5px] text-[var(--muted-foreground)]">
-        {probe.knowledge_base_name
-          ? t("Knowledge base {{name}}", {
-              name: probe.knowledge_base_name,
-            })
-          : probe.knowledge_base_id}
-      </div>
-    </div>
-  );
+    </>
+  )
 }
 
 function LinkModeFields({
@@ -1390,7 +744,6 @@ function LinkModeFields({
   linkSource,
   setLinkSource,
   linkIsObsidian,
-  linkIsIma,
   linkIsMarginNote,
   folderPath,
   setFolderPath,
@@ -1398,36 +751,32 @@ function LinkModeFields({
   probing,
   probe,
   onProbe,
-  connectionForm,
   t,
 }: {
-  providers: RagProviderSummary[];
-  linkSource: string;
-  setLinkSource: (id: string) => void;
-  linkIsObsidian: boolean;
-  linkIsIma: boolean;
-  linkIsMarginNote: boolean;
-  folderPath: string;
-  setFolderPath: (value: string) => void;
-  submitting: boolean;
-  probing: boolean;
-  probe: LinkedFolderProbe | null;
-  onProbe: () => void;
-  connectionForm?: ReactNode;
-  t: TFn;
+  providers: RagProviderSummary[]
+  linkSource: string
+  setLinkSource: (id: string) => void
+  linkIsObsidian: boolean
+  linkIsMarginNote: boolean
+  folderPath: string
+  setFolderPath: (value: string) => void
+  submitting: boolean
+  probing: boolean
+  probe: LinkedFolderProbe | null
+  onProbe: () => void
+  t: TFn
 }) {
   return (
     <>
       <div>
         <label className="mb-1.5 block text-[11px] font-medium uppercase tracking-wide text-[var(--muted-foreground)]">
-          {t("Source")}
+          {t('Source')}
         </label>
         <div className="grid gap-2 sm:grid-cols-2">
-          {providers.map((p) => {
-            const selected =
-              !linkIsObsidian && !linkIsMarginNote && linkSource === p.id;
-            const enabled = linkSourceEnabled(p);
-            const disabled = submitting || !enabled;
+          {providers.map(p => {
+            const selected = !linkIsObsidian && !linkIsMarginNote && linkSource === p.id
+            const enabled = Boolean(p.linkable)
+            const disabled = submitting || !enabled
             return (
               <button
                 key={p.id}
@@ -1436,15 +785,13 @@ function LinkModeFields({
                 onClick={() => setLinkSource(p.id)}
                 title={
                   !enabled
-                    ? t(
-                        "This engine's index lives in the cloud and can't be linked.",
-                      )
+                    ? t("This engine's index lives in the cloud and can't be linked.")
                     : undefined
                 }
                 className={`group flex flex-col gap-1 rounded-2xl border p-3 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
                   selected
-                    ? "border-[var(--primary)] bg-[var(--primary)]/5"
-                    : "border-[var(--border)] hover:border-[var(--ring)]"
+                    ? 'border-[var(--primary)] bg-[var(--primary)]/5'
+                    : 'border-[var(--border)] hover:border-[var(--ring)]'
                 }`}
               >
                 <div className="flex items-center justify-between gap-2">
@@ -1456,11 +803,7 @@ function LinkModeFields({
                     <Check className="h-3.5 w-3.5 text-[var(--primary)]" />
                   ) : !enabled ? (
                     <span className="inline-flex items-center gap-1 rounded-full bg-[var(--muted)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--muted-foreground)]">
-                      {t("Cloud index")}
-                    </span>
-                  ) : p.id === IMA_PROVIDER ? (
-                    <span className="inline-flex items-center gap-1 rounded-full bg-sky-100 px-1.5 py-0.5 text-[10px] font-medium text-sky-700 dark:bg-sky-950/30 dark:text-sky-300">
-                      {t("Read only")}
+                      {t('Cloud index')}
                     </span>
                   ) : null}
                 </div>
@@ -1468,7 +811,7 @@ function LinkModeFields({
                   {p.description}
                 </span>
               </button>
-            );
+            )
           })}
 
           {/* Obsidian — a live vault, no index. */}
@@ -1478,23 +821,19 @@ function LinkModeFields({
             onClick={() => setLinkSource(OBSIDIAN_SOURCE)}
             className={`group flex flex-col gap-1 rounded-2xl border p-3 text-left transition-colors disabled:opacity-50 ${
               linkIsObsidian
-                ? "border-[var(--primary)] bg-[var(--primary)]/5"
-                : "border-[var(--border)] hover:border-[var(--ring)]"
+                ? 'border-[var(--primary)] bg-[var(--primary)]/5'
+                : 'border-[var(--border)] hover:border-[var(--ring)]'
             }`}
           >
             <div className="flex items-center justify-between gap-2">
               <span className="flex items-center gap-2 text-[13px] font-medium text-[var(--foreground)]">
                 <KnowledgeEngineIcon engine="obsidian" size={24} />
-                {t("Obsidian")}
+                {t('Obsidian')}
               </span>
-              {linkIsObsidian && (
-                <Check className="h-3.5 w-3.5 text-[var(--primary)]" />
-              )}
+              {linkIsObsidian && <Check className="h-3.5 w-3.5 text-[var(--primary)]" />}
             </div>
             <span className="text-[11.5px] leading-snug text-[var(--muted-foreground)]">
-              {t(
-                "A live Obsidian vault — browsed and edited in place, no index.",
-              )}
+              {t('A live Obsidian vault — browsed and edited in place, no index.')}
             </span>
           </button>
 
@@ -1505,59 +844,49 @@ function LinkModeFields({
             onClick={() => setLinkSource(MARGINNOTE4_SOURCE)}
             className={`group flex flex-col gap-1 rounded-2xl border p-3 text-left transition-colors disabled:opacity-50 ${
               linkIsMarginNote
-                ? "border-[var(--primary)] bg-[var(--primary)]/5"
-                : "border-[var(--border)] hover:border-[var(--ring)]"
+                ? 'border-[var(--primary)] bg-[var(--primary)]/5'
+                : 'border-[var(--border)] hover:border-[var(--ring)]'
             }`}
           >
             <div className="flex items-center justify-between gap-2">
               <span className="flex items-center gap-2 text-[13px] font-medium text-[var(--foreground)]">
                 <KnowledgeEngineIcon engine="marginnote4" size={24} />
-                {t("MarginNote 4")}
+                {t('MarginNote 4')}
               </span>
-              {linkIsMarginNote && (
-                <Check className="h-3.5 w-3.5 text-[var(--primary)]" />
-              )}
+              {linkIsMarginNote && <Check className="h-3.5 w-3.5 text-[var(--primary)]" />}
             </div>
             <span className="text-[11.5px] leading-snug text-[var(--muted-foreground)]">
-              {t(
-                "Notes, excerpts and cards pushed in by the MarginNote 4 add-on.",
-              )}
+              {t('Notes, excerpts and cards pushed in by the MarginNote 4 add-on.')}
             </span>
           </button>
         </div>
       </div>
 
-      {linkIsIma ? (
-        connectionForm
-      ) : linkIsMarginNote ? (
+      {linkIsMarginNote ? (
         <p className="rounded-lg border border-[var(--border)] bg-[var(--muted)]/40 px-3 py-2 text-[11.5px] leading-relaxed text-[var(--muted-foreground)]">
           {t(
-            "The library starts empty. Pair a device from its Devices tab, then enter the token in the MarginNote 4 add-on to start syncing.",
+            'The library starts empty. Pair a device from its Devices tab, then enter the token in the MarginNote 4 add-on to start syncing.'
           )}
         </p>
       ) : (
         <>
           <div>
             <label className="mb-1 block text-[11px] font-medium uppercase tracking-wide text-[var(--muted-foreground)]">
-              {linkIsObsidian ? t("Vault path") : t("Folder path")}
+              {linkIsObsidian ? t('Vault path') : t('Folder path')}
             </label>
             <div className="flex gap-2">
               <input
                 value={folderPath}
-                onChange={(event) => setFolderPath(event.target.value)}
+                onChange={event => setFolderPath(event.target.value)}
                 disabled={submitting}
-                placeholder={
-                  linkIsObsidian ? EXAMPLE_VAULT_PATH : EXAMPLE_INDEX_PATH
-                }
+                placeholder={linkIsObsidian ? EXAMPLE_VAULT_PATH : EXAMPLE_INDEX_PATH}
                 className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 font-mono text-[12.5px] text-[var(--foreground)] outline-none transition-colors focus:border-[var(--foreground)]/25 disabled:opacity-50"
               />
               {!linkIsObsidian && (
                 <button
                   type="button"
                   onClick={onProbe}
-                  disabled={
-                    submitting || probing || folderPath.trim().length === 0
-                  }
+                  disabled={submitting || probing || folderPath.trim().length === 0}
                   className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-[var(--border)] px-3 text-[12px] font-medium text-[var(--foreground)] transition-colors hover:border-[var(--ring)] disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   {probing ? (
@@ -1565,15 +894,15 @@ function LinkModeFields({
                   ) : (
                     <FolderSearch className="h-3.5 w-3.5" />
                   )}
-                  {t("Check folder")}
+                  {t('Check folder')}
                 </button>
               )}
             </div>
             <p className="mt-1 text-[11px] text-[var(--muted-foreground)]">
               {linkIsObsidian
-                ? t("The absolute path to the vault folder on this machine.")
+                ? t('The absolute path to the vault folder on this machine.')
                 : t(
-                    "The absolute path to a knowledge base folder on this machine — nothing is copied.",
+                    'The absolute path to a knowledge base folder on this machine — nothing is copied.'
                   )}
             </p>
           </div>
@@ -1582,7 +911,7 @@ function LinkModeFields({
         </>
       )}
     </>
-  );
+  )
 }
 
 function ProbeVerdict({ probe, t }: { probe: LinkedFolderProbe; t: TFn }) {
@@ -1595,25 +924,25 @@ function ProbeVerdict({ probe, t }: { probe: LinkedFolderProbe; t: TFn }) {
         </span>
         {probe.error && <p className="mt-1 leading-relaxed">{probe.error}</p>}
       </div>
-    );
+    )
   }
 
-  const compatible = probe.embedding.compatible;
+  const compatible = probe.embedding.compatible
   return (
     <div className="space-y-2 rounded-lg border border-[var(--border)] bg-[var(--muted)]/40 px-3 py-2.5 text-[12px]">
       <div className="flex items-center gap-1.5 font-medium text-emerald-700 dark:text-emerald-300">
         <Check className="h-3.5 w-3.5 shrink-0" />
-        {t("Ready index found")}
+        {t('Ready index found')}
       </div>
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11.5px] text-[var(--muted-foreground)]">
         {probe.version && <span className="font-mono">{probe.version}</span>}
         {probe.doc_count != null && (
-          <span>{t("{{count}} documents", { count: probe.doc_count })}</span>
+          <span>{t('{{count}} documents', { count: probe.doc_count })}</span>
         )}
         {compatible === true && (
           <span className="inline-flex items-center gap-1 text-emerald-700 dark:text-emerald-300">
             <Check className="h-3 w-3" />
-            {t("Embedding model matches")}
+            {t('Embedding model matches')}
           </span>
         )}
       </div>
@@ -1627,5 +956,5 @@ function ProbeVerdict({ probe, t }: { probe: LinkedFolderProbe; t: TFn }) {
         </p>
       ))}
     </div>
-  );
+  )
 }

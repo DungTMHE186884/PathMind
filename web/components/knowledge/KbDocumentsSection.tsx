@@ -84,7 +84,7 @@ export default function KbDocumentsSection({
   const status = resolveKbStatus(kb);
   const isError = status === "error";
   const provider =
-    kb.statistics?.rag_provider || kb.metadata?.rag_provider || "llamaindex";
+    kb.statistics?.rag_provider || kb.metadata?.rag_provider || "lightrag";
   const policyForProvider = uploadPolicyForProvider(uploadPolicy, provider);
   const publishedLightRagVersion =
     provider === "lightrag"

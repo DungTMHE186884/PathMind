@@ -501,31 +501,15 @@ function StandaloneComposerImpl({
   );
 
   // ── Picker handlers ───────────────────────────────────────────
-  // PageIndex-OSS bases are mutually exclusive — the engine answers from one
-  // index at a time, so picking a second silently dropped the first.
   const handleToggleKB = useCallback(
     (name: string) => {
-      const providerOf = (kbName: string) => {
-        const kb = knowledgeBases.find((item) => knowledgeBaseRef(item) === kbName);
-        return (
-          (kb?.metadata?.rag_provider as string | undefined) ||
-          (kb?.statistics?.rag_provider as string | undefined) ||
-          ""
-        );
-      };
       if (selectedKnowledgeBases.includes(name)) {
         applyKnowledgeBases(selectedKnowledgeBases.filter((kb) => kb !== name));
         return;
       }
-      const kept =
-        providerOf(name) === "pageindex-oss"
-          ? selectedKnowledgeBases.filter(
-              (kb) => providerOf(kb) !== "pageindex-oss",
-            )
-          : selectedKnowledgeBases;
-      applyKnowledgeBases([...kept, name]);
+      applyKnowledgeBases([...selectedKnowledgeBases, name]);
     },
-    [applyKnowledgeBases, knowledgeBases, selectedKnowledgeBases],
+    [applyKnowledgeBases, selectedKnowledgeBases],
   );
 
   // The selected agent lives *in* `selectedKnowledgeBases` — one list reaches

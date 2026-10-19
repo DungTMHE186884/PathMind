@@ -39,7 +39,6 @@ from pathmind.multi_user.book_access import (
     resolve_book,
 )
 from pathmind.multi_user.context import get_current_user
-from pathmind.multi_user.identity import remove_book_permission_overrides
 from pathmind.runtime.stream_bus import StreamBus
 
 router = APIRouter()
@@ -774,11 +773,7 @@ async def delete_book(book_id: str) -> dict[str, Any]:
     if not ok:
         raise HTTPException(status_code=404, detail="Book not found")
     if get_current_user().is_admin:
-        affected = remove_book_permission_overrides(book_id)
-        log_admin_action(
-            "book_delete",
-            summary={"book_id": book_id, "acl_users_cleaned": len(affected)},
-        )
+        log_admin_action("book_delete", summary={"book_id": book_id})
     return {"deleted": True, "book_id": book_id}
 
 

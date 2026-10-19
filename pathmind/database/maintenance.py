@@ -140,7 +140,7 @@ def reconcile_identity_mirror(session_factory) -> None:
                     id=uid,
                     username=username,
                     password_hash="managed-by-auth-store",
-                    role=role if role in {"admin", "user"} else "user",
+                    role=role if role in {"admin", "rnd", "educator", "user"} else "user",
                 )
                 db.add(row)
             if row.username != username:

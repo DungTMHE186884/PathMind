@@ -7,7 +7,6 @@ from pathlib import Path
 from typing import Any
 
 from pathmind.core.context import UnifiedContext
-from pathmind.services.cli_apps.models import TOOL_PREFIX as CLI_APP_TOOL_PREFIX
 
 logger = logging.getLogger(__name__)
 
@@ -59,7 +58,7 @@ def bind_workspace_tool_runtime(
         kwargs["_workspace_id"] = workspace.workspace_id
         kwargs["_language"] = context.language or "en"
 
-    if tool_name in {"exec"} or tool_name.startswith(CLI_APP_TOOL_PREFIX):
+    if tool_name in {"exec"}:
         from pathmind.services.sandbox import Mount
         from pathmind.services.workspace.execution import prepare_workspace_execution_env
 

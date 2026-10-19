@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useAuthStatus } from "@/hooks/useAuthStatus";
 
 /**
- * Personalization surfaces (Personas, Skills, MCP, CLI apps, Memory) are for
+ * Personalization surfaces (Personas, Skills, Memory) are for
  * administrators only when sign-in is enabled. Single-user installs (auth off)
  * keep full access. Regular accounts are sent back to `fallback`.
  */

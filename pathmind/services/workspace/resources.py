@@ -109,12 +109,6 @@ def validate_resources(value, *, previous=None, workspace_id="") -> dict:
 
 
 def resource_catalog(*, workspace_id: str = "") -> dict:
-    from pathmind.multi_user.context import get_current_user
-    from pathmind.multi_user.paths import current_owner_id
-    from pathmind.multi_user.tool_access import allowed_mcp_tools
-    from pathmind.services.mcp.config import load_mcp_config
-    from pathmind.services.mcp.manager import wrapped_tool_name
-    from pathmind.services.mcp.user_config import load_user_mcp_config
     from pathmind.services.skill.runtime import skill_sources
     from pathmind.services.workspace.knowledge import knowledge_catalog
 
@@ -134,31 +128,7 @@ def resource_catalog(*, workspace_id: str = "") -> dict:
                 }
             )
 
-    shared = load_mcp_config()
-    grant = allowed_mcp_tools()
-    mcp = []
-    for name, cfg in shared.servers.items():
-        prefix = wrapped_tool_name(name, "")
-        if (
-            not get_current_user().is_admin
-            and grant is not None
-            and not any(n.startswith(prefix) for n in grant)
-        ):
-            continue
-        mcp.append(
-            {
-                "id": f"deployment:{name}",
-                "name": name,
-                "source": "deployment",
-                "available": cfg.enabled,
-            }
-        )
-    owned, _ = load_user_mcp_config(current_owner_id())
-    mcp.extend(
-        {"id": f"account:{name}", "name": name, "source": "account", "available": cfg.enabled}
-        for name, cfg in owned.servers.items()
-    )
-    return {"skills": skills, "mcp": mcp, "knowledge_bases": knowledge_catalog()}
+    return {"skills": skills, "mcp": [], "knowledge_bases": knowledge_catalog()}
 
 
 def resource_usage(kind: str, resource_id: str, *, skill_workspace: str = "") -> list[dict]:

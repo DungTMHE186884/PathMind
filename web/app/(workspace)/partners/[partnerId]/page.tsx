@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Partner detail: a chat-first page with Configure and Channels tabs.
+ * Partner detail: a chat-first page with Configure tab.
  * Header carries identity + run state; everything else lives in the tabs.
  */
 
@@ -17,7 +17,6 @@ import {
   Loader2,
   MessageCircle,
   Play,
-  Radio,
   Settings2,
   Square,
   Trash2,
@@ -42,7 +41,6 @@ import {
 } from "@/lib/partner-session";
 import PartnerAvatar from "@/components/partners/PartnerAvatar";
 import PartnerChat from "@/components/partners/PartnerChat";
-import PartnerChannels from "@/components/partners/PartnerChannels";
 import PartnerConfigure from "@/components/partners/PartnerConfigure";
 import PartnerArchives from "@/components/partners/PartnerArchives";
 import PartnerLinkModal from "@/components/partners/PartnerLinkModal";
@@ -52,7 +50,7 @@ import SaveToNotebookModal, {
 } from "@/components/notebook/SaveToNotebookModal";
 import { confirmAction } from "@/lib/confirm";
 
-type Tab = "chat" | "configure" | "channels" | "archive";
+type Tab = "chat" | "configure" | "archive";
 
 function PartnerDetail() {
   const params = useParams<{ partnerId: string }>();
@@ -63,7 +61,7 @@ function PartnerDetail() {
 
   const initialTab = (searchParams.get("tab") as Tab) || "chat";
   const [tab, setTab] = useState<Tab>(
-    ["chat", "configure", "channels", "archive"].includes(initialTab)
+    ["chat", "configure", "archive"].includes(initialTab)
       ? initialTab
       : "chat",
   );
@@ -75,7 +73,7 @@ function PartnerDetail() {
   // ``?tab=`` is user-supplied, so a management tab on a shared partner (or
   // before the partner has loaded) resolves to Chat rather than an empty pane.
   const activeTab: Tab =
-    !canManage && (tab === "configure" || tab === "channels") ? "chat" : tab;
+    !canManage && tab === "configure" ? "chat" : tab;
   const [loading, setLoading] = useState(true);
   const [lifecycleBusy, setLifecycleBusy] = useState(false);
   const [toast, setToast] = useState("");
@@ -265,7 +263,6 @@ function PartnerDetail() {
     ...(canManage
       ? ([
           { key: "configure", label: t("Configure"), icon: Settings2 },
-          { key: "channels", label: t("Channels"), icon: Radio },
         ] as const)
       : []),
     { key: "archive", label: t("Archive"), icon: Archive },
@@ -454,10 +451,6 @@ function PartnerDetail() {
               onToast={setToast}
               onUpdated={() => void load()}
             />
-          </div>
-        ) : activeTab === "channels" ? (
-          <div className="mx-auto h-full max-w-3xl overflow-y-auto px-5 py-5">
-            <PartnerChannels partnerId={partnerId} onToast={setToast} />
           </div>
         ) : null}
       </div>

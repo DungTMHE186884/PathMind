@@ -1,13 +1,3 @@
-"""
-Log Adapters
-============
+"""Log adapters (none currently registered)."""
 
-Adapters for forwarding logs from external libraries to the unified logging system.
-"""
-
-from .llamaindex import LlamaIndexLogContext, LlamaIndexLogForwarder
-
-__all__ = [
-    "LlamaIndexLogContext",
-    "LlamaIndexLogForwarder",
-]
+__all__: list[str] = []

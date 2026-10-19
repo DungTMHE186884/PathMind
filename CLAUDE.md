@@ -5,7 +5,7 @@ PathMind là bản đổi tên + tùy biến của DeepTutor (HKUDS, Apache-2.0 
 và các quy ước cần nhớ khi sửa code. Kiến trúc lõi (Tools / Capabilities / ChatOrchestrator / StreamBus)
 nằm trong `pathmind/`.
 
-> Cập nhật lần cuối: 2026-09-30 — Gói Plus + quyền theo gói (entitlements), Partner chat riêng tư với admin. Trước đó (2026-09-28): Skills cho mọi người dùng, Partners en/zh + chat phòng học, Cộng đồng (Skill Hub, Forum, báo cáo vi phạm, thông báo), bỏ Import from EduHub. Trước đó: VNPAY, dọn cài đặt hosted, web production, tín dụng lập chỉ mục.
+> Cập nhật lần cuối: 2026-10-19 — Áp dụng D1–D10 (vai trò R&D/Educator, console riêng cho staff, nhánh cá nhân, điểm thưởng, chỉ còn GraphRAG + LightRAG, bỏ MCP/CLI/kênh IM). Trước đó (2026-09-30): Gói Plus + quyền theo gói (entitlements), Partner chat riêng tư với admin. Trước đó (2026-09-28): Skills cho mọi người dùng, Partners en/zh + chat phòng học, Cộng đồng (Skill Hub, Forum, báo cáo vi phạm, thông báo), bỏ Import from EduHub. Trước đó: VNPAY, dọn cài đặt hosted, web production, tín dụng lập chỉ mục.
 
 ---
 
@@ -35,6 +35,18 @@ nằm trong `pathmind/`.
 Chú thích: ✅ hoàn thiện · 🟡 chạy được nhưng chưa đầy đủ · ⚠️ chưa làm / chỉ demo.
 
 ---
+
+### Áp dụng quyết định D1–D10 (2026-10-19) — chi tiết từng module: `CHANGES_REBUILD.md`
+- **Vai trò** `admin | rnd | educator | user`. Quyền chỉ theo vai trò + gói (D6): đã bỏ kho sách dùng chung của admin, quyền theo từng sách (`book_permission`) và grant KB của admin cho từng người (D1). Grant model/skill/partner/tool vẫn giữ.
+- **Console staff** (route group `(admin)`): `app/(admin)/layout.tsx` = `StaffGuard` + `AppShell` với `components/staff/StaffSidebar.tsx` (nhóm Knowledge R&D / Business / System, lọc theo vai trò). R&D chỉ thấy cây chính, duyệt đề xuất, Rewards (chỉ xem), System Status; admin thấy hết. Không dùng chung sidebar với learner/educator; đăng nhập staff vào thẳng `/admin`. Đã bỏ `AdminTabs`.
+- **Nhánh cá nhân** (`/api/knowledge-branch`, trang `/knowledge-branch` "My Knowledge"): mở cho **mọi tài khoản** (không còn khoá gói). Upload/tạo KB ⇒ nền chạy `overlay.auto_enrich_files` (dàn bài → nút, không tốn AI; bỏ qua tệp đã xử lý theo sha256, > 25 MB, định dạng không đọc được; lỗi không làm hỏng upload; không lưu bản sao thứ hai). Staff (admin/rnd) không bị làm giàu nhánh. `POST /enrich` thủ công: chỉ Educator/admin giữ file gốc và bị tính vào hạn mức dung lượng.
+- **Đề xuất** (`/api/recommendations`): Educator gửi (cần quyền gói `contribute`), R&D/admin gộp nút vào cây chính hoặc từ chối; gộp ⇒ cộng điểm + email.
+- **Mastery path trên nhánh**: chỉ đánh dấu thành thạo khi mọi tiên quyết đã thành thạo (409); không bỏ đánh dấu nút mà nút đã thành thạo khác phụ thuộc.
+- **Điểm thưởng** (`services/rewards.py`): quy tắc `earn.node_mastered` (mỗi nút 1 lần) có trần `cap.daily_activity_points`/ngày UTC; `earn.recommendation_merged`, `earn.per_node_merged`. Chỉ **admin** sửa quy tắc / cấp điểm tay; R&D xem sổ. Tiêu điểm khoá `_SPEND_LOCK` (1 process). Đổi ngày gói bị từ chối nếu gói trả phí hiện tại không hết hạn (tránh thay gói vĩnh viễn bằng gói ngắn).
+- **RAG (D2)**: KB mới chỉ GraphRAG/LightRAG; người dùng thường **chỉ LightRAG** (`_new_kb_provider` 403; `rag-providers` trả `selectable`, `CreateKbModal` lọc). GraphRAG dành cho cây chính của admin/rnd.
+- `object_store.save/load(..., db=)`: truyền phiên đang mở khi đang trong giao dịch ghi (tránh phiên thứ hai rollback/khoá SQLite).
+- Test: `tests_pm/` (chạy cùng `conftest` của `C:\PathMind_removed\tests\tests`), thêm `tests_pm/services/test_branch_rewards.py`.
+- Còn tồn: R&D chưa nối được KB GraphRAG của chính mình vào domain (`admin_kb_names` đọc kho của admin); dịch i18n chuỗi mới; `npm run contracts:generate`; mã hoá SMTP/S3 secret trong DB.
 
 ### Cây tri thức + công cụ truy hồi hợp nhất (2026-10-07)
 - Menu **Knowledge Tree** (`/knowledge-tree`, API `/api/knowledge-tree`). **Chỉ admin** tạo/sửa/xoá (nhập PDF/DOCX/MD/TXT: tiêu đề → nút), mọi người đăng nhập chỉ đọc. Bảng `knowledge_domains` (có `kb_name` nối tới KB GraphRAG trong kho của admin), `knowledge_sources`, `knowledge_nodes`; code ở `services/knowledge_tree/` (`ingest.py`, `service.py`, `unified.py`).

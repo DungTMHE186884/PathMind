@@ -146,16 +146,6 @@ BUILTIN_TOOL_SPECS: tuple[BuiltinToolSpec, ...] = (
         ),
     ),
     *_specs(
-        "pathmind.capabilities.ima.tools",
-        (
-            ("ima_list", "ImaListTool"),
-            ("ima_read", "ImaReadTool"),
-            ("ima_note_search", "ImaNoteSearchTool"),
-            ("ima_add_url", "ImaAddUrlTool"),
-            ("ima_write_note", "ImaWriteNoteTool"),
-        ),
-    ),
-    *_specs(
         "pathmind.capabilities.reading.tools",
         (
             ("reading_list_tabs", "ReadingListTabsTool"),

@@ -1,6 +1,7 @@
-"""Knowledge-tree rules: administrators curate it, everyone signed in reads it.
+"""Knowledge-tree rules: R&D (and administrators) curate the main tree; it is hidden
+from everyone else, who only meet it through the tutor.
 
-The tutor reads the tree too (``knowledge_tree`` / ``knowledge_search`` tools).
+The tutor reads the tree (``knowledge_tree`` / ``knowledge_search`` tools).
 """
 
 from __future__ import annotations
@@ -22,7 +23,7 @@ from pathmind.database.models import (
 
 from . import ingest
 
-EDIT_ROLES = frozenset({"admin"})
+EDIT_ROLES = frozenset({"admin", "rnd"})
 MAX_TITLE = 200
 MAX_SUMMARY = 4000
 MAX_REASON = 1000
@@ -41,7 +42,7 @@ def can_edit(role: str) -> bool:
 
 def _require_edit(role: str) -> None:
     if not can_edit(role):
-        raise TreeError(403, "Only administrators can change the knowledge tree.")
+        raise TreeError(403, "Only R&D or administrators can change the knowledge tree.")
 
 
 def _now() -> datetime:
@@ -458,6 +459,16 @@ def import_file(
     )
     db.add(source)
     db.flush()
+    from .store import store_original
+
+    store_original(source, filename, data, db)
+    from pathmind.services import audit
+
+    audit.record(
+        db, user_id, "store.document.upload", target_type="document", target_id=source.id,
+        data={"filename": source.filename, "size": source.size, "domain_id": domain.id, "built_tree": True},
+        commit=False,
+    )
     stack: list[tuple[int, str]] = []  # (level, node id)
     created = 0
     positions: dict[str | None, int] = {}

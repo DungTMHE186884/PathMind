@@ -9,12 +9,7 @@ register a pointer we must answer two questions for the user:
    "is this KB ready?" logic that lists ordinary KBs decides linkability.
 2. **Was that index built with a compatible embedding model?** A local vector /
    graph index is only queryable by the embedding model that built it. A
-   mismatch makes LlamaIndex error loudly and the graph engines fail silently,
-   so we surface a clear verdict the UI can confirm.
-
-PageIndex is deliberately not linkable: its index lives in the cloud (the local
-folder holds only a doc-id manifest), so there is nothing self-contained to
-mount.
+   mismatch makes the graph engines fail silently, so we surface a clear verdict the UI can confirm.
 """
 
 from __future__ import annotations
@@ -32,16 +27,13 @@ from typing import Any, Optional
 LINK_ROOTS_ENV = "PATHMIND_LINKED_FOLDER_ROOTS"
 
 from pathmind.services.rag.factory import (
-    DEFAULT_PROVIDER,
     GRAPHRAG_PROVIDER,
     LIGHTRAG_PROVIDER,
-    PAGEINDEX_PROVIDER,
     normalize_provider_name,
 )
 
-# Engines whose index is self-contained on disk and therefore mountable. The
-# cloud-backed PageIndex is excluded — see module docstring.
-LINKABLE_PROVIDERS = frozenset({DEFAULT_PROVIDER, GRAPHRAG_PROVIDER, LIGHTRAG_PROVIDER})
+# Engines whose index is self-contained on disk and therefore mountable.
+LINKABLE_PROVIDERS = frozenset({GRAPHRAG_PROVIDER, LIGHTRAG_PROVIDER})
 
 
 @dataclass
@@ -128,12 +120,6 @@ def probe_linked_folder(folder_path: str, provider: str) -> ProbeResult:
     folder = Path(folder_path).expanduser()
     result = ProbeResult(provider=provider, external_path=str(folder))
 
-    if provider == PAGEINDEX_PROVIDER:
-        result.error = (
-            "PageIndex indexes live in the cloud, not in a local folder, so they "
-            "cannot be linked. Create a PageIndex knowledge base instead."
-        )
-        return result
     if provider not in LINKABLE_PROVIDERS:
         result.error = f"Engine '{provider}' does not support linking an existing folder."
         return result
@@ -182,12 +168,8 @@ def _check_embedding(provider: str, version: dict, result: ProbeResult) -> None:
     compat = result.embedding
     compat.current_model = current.model if current else None
 
-    # LlamaIndex stores the embedding hash in the version signature; the graph
-    # engines stamp it separately (see embedding_meta_fields).
-    if provider == DEFAULT_PROVIDER:
-        index_hash = str(version.get("signature") or "")
-    else:
-        index_hash = str(version.get("embedding_signature") or "")
+    # The graph engines stamp the embedding hash separately (see embedding_meta_fields).
+    index_hash = str(version.get("embedding_signature") or "")
     compat.index_model = version.get("embedding_model") or version.get("model")
 
     if current is None:

@@ -36,7 +36,7 @@ import shutil
 logger = logging.getLogger(__name__)
 
 _USER_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
-_PER_OWNER_SYSTEM_DIRS = ("user-secrets", "user-mcp", "user-cli-apps")
+_PER_OWNER_SYSTEM_DIRS = ("user-secrets", "user-mcp")
 
 
 class AccountDeletionError(Exception):

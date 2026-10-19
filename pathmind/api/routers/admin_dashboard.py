@@ -57,7 +57,7 @@ _PLAN_ID_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{1,48}$")
 
 
 class UpdateUserRoleBody(BaseModel):
-    role: Literal["admin", "user"]
+    role: Literal["admin", "rnd", "educator", "user"]
 
 
 class AssignPlanBody(BaseModel):

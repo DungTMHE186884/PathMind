@@ -259,75 +259,6 @@ DEFAULT_DOCUMENT_PARSING_SETTINGS: dict[str, Any] = {
 # tests reference ``DEFAULT_MINERU_SETTINGS``; it now denotes the engine slice.
 DEFAULT_MINERU_SETTINGS: dict[str, Any] = _DEFAULT_MINERU_ENGINE
 
-# PageIndex cloud RAG engine. A KB indexed with the ``pageindex`` provider
-# ships its documents to the hosted PageIndex service for tree building and
-# reasoning-based retrieval. The SDK owns the official endpoint; the same
-# deployment-level credential is reused by every ``pageindex`` KB.
-# Kept in its own JSON file so the credential lives beside other per-feature
-# settings and never leaks into model/network config.
-DEFAULT_PAGEINDEX_SETTINGS: dict[str, Any] = {
-    "version": 1,
-    "api_key": "",
-}
-
-# Tencent IMA. The credential pair (``client_id`` + ``api_key``, issued at
-# https://ima.qq.com/agent-interface) identifies one IMA account, and every
-# library in that account is reachable with it — so it belongs here, beside the
-# other engine credentials, rather than being retyped for each connected KB.
-# A KB may still carry its own pair to reach a *different* IMA account; that
-# per-KB binding wins (see ``pipelines/ima/config.py``).
-DEFAULT_IMA_SETTINGS: dict[str, Any] = {
-    "version": 1,
-    "client_id": "",
-    "api_key": "",
-}
-
-# LlamaIndex local RAG engine. These are the retrieval + chunking knobs the
-# default engine exposes; they were previously hardcoded / env-only. Kept in
-# their own JSON file so the engine's detail page can read/write them.
-#
-# * ``retrieval_profile`` — "hybrid" (BM25 + vector fusion) or "vector" only.
-# * ``top_k`` — default number of chunks a query returns.
-# * ``vector_top_k_multiplier`` / ``bm25_top_k_multiplier`` — how many extra
-#   candidates each child retriever fetches before fusion re-ranks to ``top_k``.
-# * ``reranker_model`` / ``rerank_top_k`` — optional cross-encoder refinement.
-#   An empty model keeps the existing embedding-only ranking.
-# * ``vector_index_type`` — FAISS index type for the next full index build.
-#   HNSW is opt-in and trades exact recall for sub-linear search at scale.
-# * ``chunk_size`` / ``chunk_overlap`` — indexing chunk geometry; changes apply
-#   on the next (re-)index, not retroactively.
-# * ``image_description_concurrency`` / ``image_description_timeout_seconds`` —
-#   bounded multimodal LLM work while indexing image-heavy documents.
-#
-# ``fusion_num_queries`` is intentionally NOT exposed: query generation needs a
-# real LLM, but the fusion retriever runs on a MockLLM, so any value > 1 would
-# silently degrade results. It stays pinned to the dataclass default.
-LLAMAINDEX_VECTOR_PROFILE = "vector"
-LLAMAINDEX_HYBRID_PROFILE = "hybrid"
-_LLAMAINDEX_PROFILES = frozenset({LLAMAINDEX_VECTOR_PROFILE, LLAMAINDEX_HYBRID_PROFILE})
-LLAMAINDEX_FLAT_VECTOR_INDEX = "flat"
-LLAMAINDEX_HNSW_VECTOR_INDEX = "hnsw"
-_LLAMAINDEX_VECTOR_INDEX_TYPES = frozenset(
-    {LLAMAINDEX_FLAT_VECTOR_INDEX, LLAMAINDEX_HNSW_VECTOR_INDEX}
-)
-
-DEFAULT_LLAMAINDEX_SETTINGS: dict[str, Any] = {
-    "version": 1,
-    "retrieval_profile": LLAMAINDEX_HYBRID_PROFILE,
-    "top_k": 5,
-    "vector_top_k_multiplier": 2,
-    "bm25_top_k_multiplier": 2,
-    "reranker_model": "",
-    "rerank_top_k": 50,
-    "vector_index_type": LLAMAINDEX_FLAT_VECTOR_INDEX,
-    "hnsw_m": 32,
-    "hnsw_ef_construction": 200,
-    "hnsw_ef_search": 64,
-    "chunk_size": 512,
-    "chunk_overlap": 50,
-    "image_description_concurrency": 4,
-    "image_description_timeout_seconds": 60,
-}
 
 # GraphRAG retrieval knobs (microsoft/graphrag). Only query-time params that the
 # engine passes explicitly (engine.py) are exposed; indexing knobs are left to
@@ -361,14 +292,6 @@ DEFAULT_LIGHTRAG_SETTINGS: dict[str, Any] = {
     "llm_model_id": "",
 }
 
-# LightRAG Server connection defaults. Individual knowledge bases remain free
-# to override the URL/key when they are connected; this account-level slice is
-# the reusable starting point shown on the engine page and in the create flow.
-DEFAULT_LIGHTRAG_SERVER_SETTINGS: dict[str, Any] = {
-    "version": 1,
-    "server_url": "",
-    "api_key": "",
-}
 
 IGNORE_PROCESS_OVERRIDES_ENV = "PATHMIND_IGNORE_PROCESS_ENV_OVERRIDES"
 TRUTHY = {"1", "true", "yes", "on"}
@@ -572,47 +495,6 @@ class RuntimeSettingsService:
         _atomic_write_json(self.path_for(DOCUMENT_PARSING_SETTINGS_NAME), payload)
         return payload["engines"][DOCUMENT_PARSING_ENGINE_MINERU]
 
-    def load_pageindex(self, *, include_process_overrides: bool = True) -> dict[str, Any]:
-        payload = self._load_or_create(
-            "pageindex",
-            DEFAULT_PAGEINDEX_SETTINGS,
-            self._normalize_pageindex,
-        )
-        if include_process_overrides:
-            payload = self._apply_pageindex_process_overrides(payload)
-        return payload
-
-    def save_pageindex(self, settings: dict[str, Any]) -> dict[str, Any]:
-        payload = self._normalize_pageindex({**DEFAULT_PAGEINDEX_SETTINGS, **settings})
-        _atomic_write_json(self.path_for("pageindex"), payload)
-        return payload
-
-    def load_ima(self, *, include_process_overrides: bool = True) -> dict[str, Any]:
-        payload = self._load_or_create("ima", DEFAULT_IMA_SETTINGS, self._normalize_ima)
-        if include_process_overrides:
-            payload = self._apply_ima_process_overrides(payload)
-        return payload
-
-    def save_ima(self, settings: dict[str, Any]) -> dict[str, Any]:
-        payload = self._normalize_ima({**DEFAULT_IMA_SETTINGS, **settings})
-        _atomic_write_json(self.path_for("ima"), payload)
-        return payload
-
-    def load_llamaindex(self, *, include_process_overrides: bool = True) -> dict[str, Any]:
-        payload = self._load_or_create(
-            "llamaindex",
-            DEFAULT_LLAMAINDEX_SETTINGS,
-            self._normalize_llamaindex,
-        )
-        if include_process_overrides:
-            payload = self._apply_llamaindex_process_overrides(payload)
-        return payload
-
-    def save_llamaindex(self, settings: dict[str, Any]) -> dict[str, Any]:
-        payload = self._normalize_llamaindex({**DEFAULT_LLAMAINDEX_SETTINGS, **settings})
-        _atomic_write_json(self.path_for("llamaindex"), payload)
-        return payload
-
     def load_graphrag(self) -> dict[str, Any]:
         return self._load_or_create("graphrag", DEFAULT_GRAPHRAG_SETTINGS, self._normalize_graphrag)
 
@@ -629,29 +511,13 @@ class RuntimeSettingsService:
         _atomic_write_json(self.path_for("lightrag"), payload)
         return payload
 
-    def load_lightrag_server(self) -> dict[str, Any]:
-        return self._load_or_create(
-            "lightrag_server",
-            DEFAULT_LIGHTRAG_SERVER_SETTINGS,
-            self._normalize_lightrag_server,
-        )
-
-    def save_lightrag_server(self, settings: dict[str, Any]) -> dict[str, Any]:
-        payload = self._normalize_lightrag_server({**DEFAULT_LIGHTRAG_SERVER_SETTINGS, **settings})
-        _atomic_write_json(self.path_for("lightrag_server"), payload)
-        return payload
-
     def ensure_defaults(self) -> None:
         self.load_system(include_process_overrides=False)
         self.load_auth(include_process_overrides=False)
         self.load_integrations(include_process_overrides=False)
         self.load_mineru(include_process_overrides=False)
-        self.load_pageindex(include_process_overrides=False)
-        self.load_ima(include_process_overrides=False)
-        self.load_llamaindex(include_process_overrides=False)
         self.load_graphrag()
         self.load_lightrag()
-        self.load_lightrag_server()
 
     def render_environment(self) -> dict[str, str]:
         """Render non-model settings into process env names for subprocesses."""
@@ -871,84 +737,6 @@ class RuntimeSettingsService:
             payload["allow_local_model_download"] = _coerce_bool(value, False)
         return self._normalize_mineru_engine(payload)
 
-    def _apply_pageindex_process_overrides(self, settings: dict[str, Any]) -> dict[str, Any]:
-        payload = dict(settings)
-        if value := self._process_env_value("PAGEINDEX_API_KEY"):
-            payload["api_key"] = value
-        return self._normalize_pageindex(payload)
-
-    def _normalize_pageindex(self, settings: dict[str, Any]) -> dict[str, Any]:
-        return {
-            "version": 1,
-            "api_key": _string(settings.get("api_key")),
-        }
-
-    def _apply_ima_process_overrides(self, settings: dict[str, Any]) -> dict[str, Any]:
-        payload = dict(settings)
-        if value := self._process_env_value("IMA_CLIENT_ID"):
-            payload["client_id"] = value
-        if value := self._process_env_value("IMA_API_KEY"):
-            payload["api_key"] = value
-        return self._normalize_ima(payload)
-
-    def _normalize_ima(self, settings: dict[str, Any]) -> dict[str, Any]:
-        return {
-            "version": 1,
-            "client_id": _string(settings.get("client_id")),
-            "api_key": _string(settings.get("api_key")),
-        }
-
-    def _apply_llamaindex_process_overrides(self, settings: dict[str, Any]) -> dict[str, Any]:
-        # Only the retrieval profile had an env override historically
-        # (PATHMIND_RAG_RETRIEVAL_PROFILE / RAG_RETRIEVAL_PROFILE); preserve it.
-        payload = dict(settings)
-        if value := (
-            self._process_env_value("PATHMIND_RAG_RETRIEVAL_PROFILE")
-            or self._process_env_value("RAG_RETRIEVAL_PROFILE")
-        ):
-            payload["retrieval_profile"] = value
-        return self._normalize_llamaindex(payload)
-
-    def _normalize_llamaindex(self, settings: dict[str, Any]) -> dict[str, Any]:
-        profile = _string(settings.get("retrieval_profile")).lower()
-        if profile not in _LLAMAINDEX_PROFILES:
-            profile = LLAMAINDEX_HYBRID_PROFILE
-        vector_index_type = _string(settings.get("vector_index_type")).lower()
-        if vector_index_type not in _LLAMAINDEX_VECTOR_INDEX_TYPES:
-            vector_index_type = LLAMAINDEX_FLAT_VECTOR_INDEX
-        chunk_size = _coerce_clamped_int(settings.get("chunk_size"), 512, 64, 8192)
-        # Overlap must stay below the chunk size or chunking degenerates.
-        chunk_overlap = _coerce_clamped_int(
-            settings.get("chunk_overlap"), 50, 0, max(0, chunk_size - 1)
-        )
-        return {
-            "version": 1,
-            "retrieval_profile": profile,
-            "top_k": _coerce_clamped_int(settings.get("top_k"), 5, 1, 50),
-            "vector_top_k_multiplier": _coerce_clamped_int(
-                settings.get("vector_top_k_multiplier"), 2, 1, 10
-            ),
-            "bm25_top_k_multiplier": _coerce_clamped_int(
-                settings.get("bm25_top_k_multiplier"), 2, 1, 10
-            ),
-            "reranker_model": _string(settings.get("reranker_model"))[:200],
-            "rerank_top_k": _coerce_clamped_int(settings.get("rerank_top_k"), 50, 1, 100),
-            "vector_index_type": vector_index_type,
-            "hnsw_m": _coerce_clamped_int(settings.get("hnsw_m"), 32, 4, 64),
-            "hnsw_ef_construction": _coerce_clamped_int(
-                settings.get("hnsw_ef_construction"), 200, 16, 512
-            ),
-            "hnsw_ef_search": _coerce_clamped_int(settings.get("hnsw_ef_search"), 64, 1, 512),
-            "chunk_size": chunk_size,
-            "chunk_overlap": chunk_overlap,
-            "image_description_concurrency": _coerce_clamped_int(
-                settings.get("image_description_concurrency"), 4, 1, 16
-            ),
-            "image_description_timeout_seconds": _coerce_clamped_int(
-                settings.get("image_description_timeout_seconds"), 60, 5, 600
-            ),
-        }
-
     def _normalize_response_type(self, value: Any) -> str:
         # GraphRAG/LightRAG accept any answer-style string; just trim + cap so a
         # pathological value can't blow up a prompt.
@@ -981,13 +769,6 @@ class RuntimeSettingsService:
             ),
             "llm_profile_id": _string(settings.get("llm_profile_id"))[:128],
             "llm_model_id": _string(settings.get("llm_model_id"))[:128],
-        }
-
-    def _normalize_lightrag_server(self, settings: dict[str, Any]) -> dict[str, Any]:
-        return {
-            "version": 1,
-            "server_url": _string(settings.get("server_url")).rstrip("/"),
-            "api_key": _string(settings.get("api_key")),
         }
 
     def _normalize_document_parsing(self, settings: dict[str, Any]) -> dict[str, Any]:
@@ -1403,20 +1184,12 @@ def load_mineru_settings() -> dict[str, Any]:
     return get_runtime_settings_service().load_mineru()
 
 
-def load_llamaindex_settings() -> dict[str, Any]:
-    return get_runtime_settings_service().load_llamaindex()
-
-
 def load_graphrag_settings() -> dict[str, Any]:
     return get_runtime_settings_service().load_graphrag()
 
 
 def load_lightrag_settings() -> dict[str, Any]:
     return get_runtime_settings_service().load_lightrag()
-
-
-def load_lightrag_server_settings() -> dict[str, Any]:
-    return get_runtime_settings_service().load_lightrag_server()
 
 
 def load_document_parsing_settings() -> dict[str, Any]:
@@ -1434,13 +1207,9 @@ __all__ = [
     "DEFAULT_AUTH_SETTINGS",
     "DEFAULT_DOCUMENT_PARSING_SETTINGS",
     "DEFAULT_GRAPHRAG_SETTINGS",
-    "DEFAULT_IMA_SETTINGS",
     "DEFAULT_INTEGRATIONS_SETTINGS",
     "DEFAULT_LIGHTRAG_SETTINGS",
-    "DEFAULT_LIGHTRAG_SERVER_SETTINGS",
-    "DEFAULT_LLAMAINDEX_SETTINGS",
     "DEFAULT_MINERU_SETTINGS",
-    "DEFAULT_PAGEINDEX_SETTINGS",
     "DEFAULT_SYSTEM_SETTINGS",
     "DOCUMENT_PARSING_ENGINE_DOCLING",
     "DOCUMENT_PARSING_ENGINE_LITEPARSE",
@@ -1467,8 +1236,6 @@ __all__ = [
     "load_graphrag_settings",
     "load_integrations_settings",
     "load_lightrag_settings",
-    "load_lightrag_server_settings",
-    "load_llamaindex_settings",
     "load_mineru_settings",
     "load_system_settings",
 ]
