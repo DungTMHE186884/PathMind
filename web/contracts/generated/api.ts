@@ -11132,23 +11132,6 @@ export interface components {
       /** Topic */
       readonly topic: string;
     };
-    /** ProgressRequest */
-    readonly pathmind__api__routers__book__ProgressRequest: {
-      /** Book Id */
-      readonly book_id: string;
-      /** Page Id */
-      readonly page_id: string;
-    };
-    /** ProgressRequest */
-    readonly pathmind__api__routers__video_learning__ProgressRequest: {
-      /**
-       * Duration Seconds
-       * @default 0
-       */
-      readonly duration_seconds: number;
-      /** Time Seconds */
-      readonly time_seconds: number;
-    };
     /** DeleteBlockRequest */
     readonly DeleteBlockRequest: {
       /** Block Id */
@@ -11770,7 +11753,7 @@ export interface components {
        * Language
        * @enum {string}
        */
-      readonly language: "zh" | "en";
+      readonly language: "zh" | "en" | "vi";
     };
     /** LearnerOverrideRequest */
     readonly LearnerOverrideRequest: {
@@ -12807,6 +12790,23 @@ export interface components {
     readonly PartnerSeatRetryRequest: {
       /** Session Key */
       readonly session_key: string;
+    };
+    /** ProgressRequest */
+    readonly pathmind__api__routers__book__ProgressRequest: {
+      /** Book Id */
+      readonly book_id: string;
+      /** Page Id */
+      readonly page_id: string;
+    };
+    /** ProgressRequest */
+    readonly pathmind__api__routers__video_learning__ProgressRequest: {
+      /**
+       * Duration Seconds
+       * @default 0
+       */
+      readonly duration_seconds: number;
+      /** Time Seconds */
+      readonly time_seconds: number;
     };
     /** PauseBookRequest */
     readonly PauseBookRequest: {
@@ -14397,9 +14397,9 @@ export interface components {
       /** Code Block Wrap Long Lines */
       readonly code_block_wrap_long_lines?: boolean | null;
       /** Language */
-      readonly language?: ("zh" | "en") | null;
+      readonly language?: ("zh" | "en" | "vi") | null;
       /** Response Language */
-      readonly response_language?: ("zh" | "en") | null;
+      readonly response_language?: ("zh" | "en" | "vi") | null;
       /** Sidebar Description */
       readonly sidebar_description?: string | null;
       readonly sidebar_nav_order?:
@@ -15170,10 +15170,6 @@ export type SchemaDataMigrationPayload =
   components["schemas"]["DataMigrationPayload"];
 export type SchemaDedupRequest = components["schemas"]["DedupRequest"];
 export type SchemaDeepDiveRequest = components["schemas"]["DeepDiveRequest"];
-export type SchemaPathmindApiRoutersBookProgressRequest =
-  components["schemas"]["pathmind__api__routers__book__ProgressRequest"];
-export type SchemaPathmindApiRoutersVideoLearningProgressRequest =
-  components["schemas"]["pathmind__api__routers__video_learning__ProgressRequest"];
 export type SchemaDeleteBlockRequest =
   components["schemas"]["DeleteBlockRequest"];
 export type SchemaDeleteKnowledgeBaseRequest =
@@ -15330,6 +15326,10 @@ export type SchemaPartnerInvocationActionRequest =
   components["schemas"]["PartnerInvocationActionRequest"];
 export type SchemaPartnerSeatRetryRequest =
   components["schemas"]["PartnerSeatRetryRequest"];
+export type SchemaPathmindApiRoutersBookProgressRequest =
+  components["schemas"]["pathmind__api__routers__book__ProgressRequest"];
+export type SchemaPathmindApiRoutersVideoLearningProgressRequest =
+  components["schemas"]["pathmind__api__routers__video_learning__ProgressRequest"];
 export type SchemaPauseBookRequest = components["schemas"]["PauseBookRequest"];
 export type SchemaPositionInfo = components["schemas"]["PositionInfo"];
 export type SchemaPositionPayload = components["schemas"]["PositionPayload"];

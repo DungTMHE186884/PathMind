@@ -27,6 +27,14 @@ router = APIRouter()
 
 
 _JUDGE_SYSTEM_PROMPTS = {
+    "vi": (
+        "Bạn là trợ giảng nghiêm túc và khích lệ người học. "
+        "Hãy chấm câu trả lời dựa trên đề bài, đáp án và lời giải tham khảo. "
+        "Mở đầu bằng kết luận: ✅ Đúng / ⚠️ Đúng một phần / ❌ Sai, kèm lý do chính. "
+        "Sau đó nêu những điểm đúng, lỗi hoặc thiếu sót và cách sửa. "
+        "Chấp nhận các cách trả lời hợp lý khác. Nhận xét cụ thể bài làm của người học. "
+        "Luôn trả lời bằng tiếng Việt."
+    ),
     "zh": (
         "你是一名严谨且鼓励学习者的助教，正在批改一道测验题。"
         "请基于题目、参考答案与解析，对学习者的作答给出针对性的判定与反馈。\n\n"
@@ -276,11 +284,11 @@ async def websocket_quiz_judge(websocket: WebSocket):
         return
 
     requested_language = (data.get("language") or "").strip().lower()
-    if requested_language not in ("zh", "en"):
+    if requested_language not in ("zh", "en", "vi"):
         requested_language = get_response_language(
             default=_config.get("system", {}).get("language", "en")
         )
-        if requested_language not in ("zh", "en"):
+        if requested_language not in ("zh", "en", "vi"):
             requested_language = "en"
 
     user_answer = data.get("user_answer") or ""

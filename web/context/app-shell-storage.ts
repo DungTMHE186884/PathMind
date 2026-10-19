@@ -3,7 +3,7 @@
 import { browserStorage } from "@/shared/storage";
 import { activeWorkspaceId } from "@/lib/workspace-scope";
 
-export type AppLanguage = "en" | "zh";
+export type AppLanguage = "en" | "zh" | "vi";
 
 export const ACTIVE_SESSION_STORAGE_KEY = "pathmind.activeSessionId.tab";
 export const LANGUAGE_STORAGE_KEY = "pathmind-language";
@@ -71,14 +71,16 @@ export const CODE_BLOCK_SETTINGS_EVENT = "pathmind:code-block-settings";
 export function normalizeLanguage(
   value: string | null | undefined,
 ): AppLanguage {
-  return value === "zh" ? "zh" : "en";
+  const code = value?.trim().toLowerCase().replaceAll("_", "-");
+  if (code === "vi" || code?.startsWith("vi-") || code === "vietnamese" || code === "tiếng việt") return "vi";
+  return code === "zh" ? "zh" : "en";
 }
 
 export function resolveResponseLanguage(
   value: string | null | undefined,
   legacyLanguage: string | null | undefined = "en",
 ): AppLanguage {
-  return value === "zh" || value === "en"
+  return value === "zh" || value === "en" || value === "vi"
     ? value
     : normalizeLanguage(legacyLanguage);
 }

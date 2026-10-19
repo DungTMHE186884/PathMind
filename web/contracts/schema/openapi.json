@@ -4330,7 +4330,8 @@
           "language": {
             "enum": [
               "zh",
-              "en"
+              "en",
+              "vi"
             ],
             "title": "Language",
             "type": "string"
@@ -9782,7 +9783,8 @@
               {
                 "enum": [
                   "zh",
-                  "en"
+                  "en",
+                  "vi"
                 ],
                 "type": "string"
               },
@@ -9797,7 +9799,8 @@
               {
                 "enum": [
                   "zh",
-                  "en"
+                  "en",
+                  "vi"
                 ],
                 "type": "string"
               },

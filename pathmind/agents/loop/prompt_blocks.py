@@ -19,6 +19,7 @@ from typing import Any
 from pathmind.capabilities.protocol import PromptBlock
 from pathmind.core.context import UnifiedContext
 from pathmind.runtime.agentic.tool_dispatch import MAX_PARALLEL_TOOL_CALLS
+from pathmind.services.config.loader import parse_language
 from pathmind.services.prompt.language import append_language_directive
 
 # These facts can change between turns without changing the tutor's rules.
@@ -44,7 +45,7 @@ class LoopPromptAssembler:
 
     def __init__(self, *, prompts: dict[str, Any], language: str) -> None:
         self.prompts = prompts
-        self.language = "zh" if language.lower().startswith("zh") else "en"
+        self.language = parse_language(language)
 
     def system_prompt(
         self,
@@ -82,10 +83,8 @@ class LoopPromptAssembler:
         joined = "\n\n---\n\n".join(
             f"## {block.name}\n{block.content.strip()}" for block in blocks if block.content.strip()
         )
-        # ``allow_user_override`` only here: chat has a user who can ask for a
-        # different language mid-conversation, and the strict directive plus
-        # the runtime policy above it otherwise make the model refuse them.
-        # Books, quizzes and research keep the strict form — nobody is asking.
+        # Chat adapts to the user's language and explicit preferences.
+        # Generated books, quizzes and reports keep their selected language.
         return append_language_directive(joined, self.language, allow_user_override=True)
 
     def split_for_replay(

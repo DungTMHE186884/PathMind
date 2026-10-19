@@ -386,7 +386,7 @@ export function ModelCard({
   model: CatalogModel;
   editorId?: string;
   service: ServiceName;
-  language: "en" | "zh";
+  language: "en" | "zh" | "vi";
   index: number;
   inUse: boolean;
   expanded: boolean;

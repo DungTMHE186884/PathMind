@@ -71,6 +71,7 @@ def _interface_settings_file():
 def _normalize_language(language: Any, default: str = "en") -> str:
     """
     Normalize language codes:
+    - vi/vi-VN/vietnamese -> vi
     - en/english -> en
     - zh/chinese/cn -> zh
     """
@@ -79,6 +80,8 @@ def _normalize_language(language: Any, default: str = "en") -> str:
 
     if isinstance(language, str):
         s = language.lower().strip()
+        if s in {"vi", "vi-vn", "vi_vn", "vietnamese", "tiếng việt"}:
+            return "vi"
         if s in {"en", "english"}:
             return "en"
         if s in {"zh", "chinese", "cn"}:

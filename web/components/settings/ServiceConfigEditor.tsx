@@ -1321,7 +1321,7 @@ export function ServiceConfigEditor({
   );
 }
 
-function defaultModelLabel(language: "en" | "zh", index: number): string {
+function defaultModelLabel(language: "en" | "zh" | "vi", index: number): string {
   const safeIndex = index > 0 ? index : 1;
   return language === "zh" ? `模型${safeIndex}` : `Model ${safeIndex}`;
 }

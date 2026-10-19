@@ -192,6 +192,8 @@ def parse_language(language: Any) -> str:
     from pathmind.services.prompt.language import normalize_language
 
     code = normalize_language(language)
+    if code in ("vi", "vi-vn", "vi_vn", "vietnamese", "tiếng việt"):
+        return "vi"
     if code in ("en", "english"):
         return "en"
     if code in ("zh", "chinese", "cn"):

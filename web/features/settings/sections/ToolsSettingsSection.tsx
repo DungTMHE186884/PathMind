@@ -183,7 +183,7 @@ export default function ToolsSettingsPage() {
       .map((section) => ({
         ...section,
         tools: section.tools.filter((tool) => {
-          const hints = tool.hints[language];
+          const hints = tool.hints[language === "vi" ? "en" : language];
           const alternateHints = tool.hints[language === "zh" ? "en" : "zh"];
           const searchableText = [
             tool.name,
@@ -311,7 +311,7 @@ export default function ToolsSettingsPage() {
                 <div className="border-t border-[var(--border)]/60">
                   {list.map((tool, idx) => {
                     const isOpen = expanded.has(tool.name);
-                    const hints = tool.hints[language];
+                    const hints = tool.hints[language === "vi" ? "en" : language];
                     const isPending = pending.has(tool.name);
                     const isComingSoon = !!tool.coming_soon;
                     const isAvailable = tool.available !== false;

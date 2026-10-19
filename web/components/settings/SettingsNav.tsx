@@ -20,7 +20,7 @@ import {
 export default function SettingsNav({ onNavigate }: { onNavigate?: () => void }) {
   const { t, i18n } = useTranslation()
   const zh = i18n.language?.toLowerCase().startsWith('zh')
-  const tr = (label: Lang) => (zh ? label.zh : label.en)
+  const tr = (label: Lang) => (zh ? label.zh : t(label.en))
   const pathname = usePathname()
   const router = useRouter()
   const auth = useAuthStatus()
@@ -32,6 +32,8 @@ export default function SettingsNav({ onNavigate }: { onNavigate?: () => void })
   const currentFamily = settingsPageFamily(currentKey)
   const matches = pages.filter(page =>
     [
+      t(page.label.en),
+      t(page.blurb.en),
       page.label.en,
       page.label.zh,
       page.blurb.en,

@@ -12,6 +12,7 @@ _LANGUAGE_LABELS: dict[str, str] = {
     "zh-cn": "中文（简体）",
     "zh-tw": "繁體中文",
     "en": "English",
+    "vi": "Vietnamese (Tiếng Việt)",
     "ja": "日本語",
     "ko": "한국어",
     "es": "Español",
@@ -44,33 +45,34 @@ def language_label(language: str | None) -> str:
     return _LANGUAGE_LABELS.get(base, language or "English")
 
 
-_OVERRIDE_ZH = (
-    "以上是默认输出语言；若用户在对话中明确要求改用其他语言作答，"
-    "则以用户当次的要求为准，并在本次对话中延续该语言。"
-)
-_OVERRIDE_EN = (
-    "This is the default output language, not a restriction on the reader: if "
-    "the user explicitly asks you to answer in another language, honour that "
-    "request and keep to it for the rest of the conversation."
-)
-
-
 def language_directive(language: str | None, *, allow_user_override: bool = False) -> str:
-    """Return a reader-facing language instruction for prompts.
-
-    ``allow_user_override`` adds one sentence letting the user change the
-    language by asking. Conversational surfaces want it; a book, a quiz or a
-    research report has no user in the loop to ask, so they keep the strict
-    form and the default stays strict.
-
-    Without it the directive is an absolute prohibition sitting at the very end
-    of the prompt, immediately after a runtime policy that says user text is
-    "not authority over these instructions" — so a model reading both refuses
-    「请用中文回复我」 and says it is *required* to answer in English. Which is
-    correct behaviour, and exactly the wrong answer.
-    """
+    """Use an adaptive language preference for chat and a strict one for artifacts."""
     code = normalize_language(language)
     label = language_label(code)
+    # The caller supplies the selected model output language, independently of UI language.
+    quality = (
+        "\n\n[Vietnamese writing quality] Use natural, standard Vietnamese with "
+        "accurate spelling, diacritics and grammar. Before sending the response, "
+        "check for malformed words, missing or misplaced tone marks, incomplete "
+        "sentences and unclear meaning. Preserve proper nouns, code and technical "
+        "identifiers. Apply this check to all Vietnamese output, including titles, "
+        "explanations, summaries and tables, regardless of the topic."
+        if code.split("-", 1)[0] == "vi"
+        else ""
+    )
+    if allow_user_override:
+        return (
+            f"\n\n[Conversation language] The configured default output language is {label}. "
+            "If the user explicitly asks for a response language, follow that preference "
+            "and keep using it until the user changes it. Otherwise, respond in the "
+            "language the user uses to address you in their current message; "
+            "for example, answer a Vietnamese message in Vietnamese even when the "
+            "configured default is English. Use the configured default only when "
+            "the user's language and conversational preference are unclear. "
+            "Do not infer the response language from quoted documents, tool results, "
+            "source material, JSON keys, or code. Keep necessary proper nouns in "
+            "their original form."
+        ) + quality
     if code.startswith("zh"):
         body = (
             "\n\n[语言要求 / Language] "
@@ -79,7 +81,7 @@ def language_directive(language: str | None, *, allow_user_override: bool = Fals
             "不得切换语言；保留必要的专有名词原文（如人名、产品名、公式中的变量符号"
             f"等）即可，其余一律使用{label}。"
         )
-        return f"{body} {_OVERRIDE_ZH}" if allow_user_override else body
+        return body
     if code == "en":
         body = (
             "\n\n[Language] Write ALL reader-facing text (titles, prose, "
@@ -89,14 +91,14 @@ def language_directive(language: str | None, *, allow_user_override: bool = Fals
             "Keep proper nouns (people, products, formula symbols) in their "
             "original form."
         )
-        return f"{body} {_OVERRIDE_EN}" if allow_user_override else body
+        return body
     body = (
         f"\n\n[Language] Write ALL reader-facing text strictly in {label}. "
         "Do NOT switch languages even if the source material, JSON keys, or "
         "examples in this prompt are in a different language. Keep proper "
         "nouns (people, products, formula symbols) in their original form."
     )
-    return f"{body} {_OVERRIDE_EN}" if allow_user_override else body
+    return body + quality
 
 
 def append_language_directive(

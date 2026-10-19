@@ -87,6 +87,7 @@ from pathmind.services.llm import (
     supports_tools,  # noqa: F401  (re-exported for tests)
 )
 from pathmind.services.llm.context_window import resolve_effective_context_window
+from pathmind.services.config.loader import parse_language
 from pathmind.services.prompt import get_prompt_manager
 from pathmind.services.prompt.lookup import prompt_text as _prompt_text
 from pathmind.tools.builtin import PARTNER_BUILTIN_TOOL_NAMES
@@ -237,7 +238,7 @@ class AgenticLoopPipeline:
         event_stage: str = "responding",
         emit_result: bool = True,
     ) -> None:
-        self.language = "zh" if language.lower().startswith("zh") else "en"
+        self.language = parse_language(language)
         self.llm_config = get_llm_config()
         self.binding = getattr(self.llm_config, "binding", None) or "openai"
         self.model = getattr(self.llm_config, "model", None)

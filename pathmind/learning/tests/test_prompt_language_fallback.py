@@ -15,7 +15,7 @@ from pathmind.learning.prompts import (
 )
 
 
-@pytest.mark.parametrize("code", ["ja", "ko", "fr", "de", "ru"])
+@pytest.mark.parametrize("code", ["ja", "ko", "fr", "de", "ru", "vi"])
 def test_a_language_without_its_own_file_lands_on_english(code: str) -> None:
     assert get_learning_prompts(code) == get_learning_prompts("en")
 

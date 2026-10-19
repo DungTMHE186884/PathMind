@@ -640,7 +640,7 @@ export default function QuizViewer({
     }));
     setAnswerViews((prev) => ({ ...prev, [idx]: "judgment" }));
 
-    const judgeLanguage: "zh" | "en" = language === "zh" ? "zh" : "en";
+    const judgeLanguage = language === "vi" ? "vi" : language === "zh" ? "zh" : "en";
 
     const handle = startQuizJudge(
       {
