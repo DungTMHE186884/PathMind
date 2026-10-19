@@ -40,7 +40,6 @@ export function WorkspaceResourcePicker({
   }, [workspaceId, attempt])
   const groups = [
     { key: 'skills' as const, label: 'Skills', href: '/space/skills' },
-    { key: 'mcp' as const, label: 'MCP services', href: '/space/mcp' },
     { key: 'knowledge_bases' as const, label: 'Knowledge bases', href: '/knowledge-bases' },
   ]
   return (

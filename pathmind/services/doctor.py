@@ -237,53 +237,20 @@ def _rag_check(
 
     defaults = config.get("defaults", {})
     default_provider = (
-        str(defaults.get("rag_provider", "llamaindex"))
+        str(defaults.get("rag_provider", "lightrag"))
         if isinstance(defaults, dict)
-        else "llamaindex"
+        else "lightrag"
     )
-    from pathmind.services.rag.factory import (
-        LIGHTRAG_SERVER_PROVIDER,
-        WEKNORA_PROVIDER,
-        normalize_provider_name,
-    )
+    from pathmind.services.rag.factory import normalize_provider_name
 
     providers: set[str] = set()
     failures: list[str] = []
-    for kb_name, entry in knowledge_bases.items():
+    for entry in knowledge_bases.values():
         if not isinstance(entry, dict):
             continue
-        provider = normalize_provider_name(str(entry.get("rag_provider") or default_provider))
-        providers.add(provider)
-        if provider == WEKNORA_PROVIDER:
-            from pathmind.services.rag.pipelines.weknora.config import (
-                config_from_entry as weknora_config_from_entry,
-            )
+        providers.add(normalize_provider_name(str(entry.get("rag_provider") or default_provider)))
 
-            try:
-                weknora_config = weknora_config_from_entry(entry)
-                endpoint_ok, _ = _safe_endpoint(weknora_config.base_url)
-                if not endpoint_ok:
-                    failures.append(f"{kb_name}: invalid WeKnora server URL")
-            except Exception as exc:
-                failures.append(f"{kb_name}: {_redact_error(exc, None)}")
-            continue
-
-        if provider != LIGHTRAG_SERVER_PROVIDER:
-            continue
-
-        from pathmind.services.rag.pipelines.lightrag_server.config import (
-            config_from_entry as lightrag_server_config_from_entry,
-        )
-
-        try:
-            server_config = lightrag_server_config_from_entry(entry)
-            endpoint_ok, _ = _safe_endpoint(server_config.base_url)
-            if not endpoint_ok:
-                failures.append(f"{kb_name}: invalid LightRAG server URL")
-        except Exception as exc:
-            failures.append(f"{kb_name}: {_redact_error(exc, None)}")
-
-    for provider in sorted(providers - {LIGHTRAG_SERVER_PROVIDER, WEKNORA_PROVIDER}):
+    for provider in sorted(providers):
         try:
             report = preflight(provider)
             for check in report.get("checks", []):

@@ -8,12 +8,13 @@ import type {
   SubscriptionPlanItem,
 } from "@/lib/billing-api";
 
+export type UserRole = "admin" | "rnd" | "educator" | "user";
 export type AccountPreset = "standard" | "learner" | "custom";
 
 export interface UserRecord {
   id: string;
   username: string;
-  role: "admin" | "user";
+  role: UserRole;
   created_at: string;
   disabled?: boolean;
   /** Avatar marker: "", "icon:<name>:<color>", or "img:<version>". */
@@ -22,11 +23,6 @@ export interface UserRecord {
   full_name?: string;
   email?: string;
   email_verified?: boolean;
-  book_permission?: {
-    create: boolean;
-    default: "none" | "read";
-    books: Record<string, "none" | "read" | "edit">;
-  };
 }
 
 export async function listUsers(): Promise<UserRecord[]> {
@@ -68,7 +64,7 @@ export async function verifyUserEmail(username: string): Promise<void> {
 
 export async function setUserRole(
   username: string,
-  role: "admin" | "user",
+  role: UserRole,
 ): Promise<void> {
   const res = await apiFetch(
     apiUrl(`/api/auth/users/${encodeURIComponent(username)}/role`),
@@ -87,7 +83,7 @@ export async function setUserRole(
 export interface CreatedUser {
   user_id: string;
   username: string;
-  role: "admin" | "user";
+  role: UserRole;
   is_admin: boolean;
   preset: AccountPreset;
 }
@@ -183,7 +179,7 @@ export function getAdminStats(): Promise<AdminStats> {
 export interface AdminUserSubscription {
   id: string;
   username: string;
-  role: "admin" | "user";
+  role: UserRole;
   plan_id: string;
   plan: string;
   subscription: SubscriptionInfo | null;
@@ -441,4 +437,36 @@ export function deleteModelPrice(id: string): Promise<unknown> {
     undefined,
     "Failed to delete model",
   );
+}
+
+export async function inviteRnd(email: string) {
+  const res = await apiFetch(apiUrl("/api/auth/invite"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email }),
+  });
+  const data = (await res.json().catch(() => ({}))) as { detail?: unknown; delivery?: string; link?: string | null };
+  if (!res.ok) throw new Error(typeof data.detail === "string" ? data.detail : `HTTP ${res.status}`);
+  return data as { ok: boolean; delivery: "email" | "link"; link: string | null };
+}
+
+export interface InvitationRow {
+  id: string;
+  email: string;
+  role: string;
+  status: "pending" | "accepted" | "revoked";
+  expires_at: string;
+  created_at: string | null;
+}
+export async function listInvitations() {
+  const res = await apiFetch(apiUrl("/api/auth/invitations"));
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return ((await res.json()) as { items: InvitationRow[] }).items;
+}
+export async function revokeInvitation(id: string) {
+  const res = await apiFetch(apiUrl(`/api/auth/invitations/${id}`), { method: "DELETE" });
+  if (!res.ok) {
+    const d = (await res.json().catch(() => ({}))) as { detail?: unknown };
+    throw new Error(typeof d.detail === "string" ? d.detail : `HTTP ${res.status}`);
+  }
 }

@@ -1,17 +1,17 @@
-"""One retrieval call that uses the curated tree *and* GraphRAG together.
+"""One retrieval call that uses the curated knowledge graph *and* GraphRAG together.
 
-Why both: the tree is small, authoritative and human-curated (it says *where* a
+Why both: the knowledge graph is small, authoritative and human-curated (it says *where* a
 question lives and carries exact source excerpts); GraphRAG is broad and
 semantic (it finds relationships and passages across the whole corpus). The
 adapter therefore works in two stages:
 
-1. **Scope** - rank tree nodes against the question (``find_scope``). The hits
+1. **Scope** - rank graph nodes against the question (``find_scope``). The hits
    give the topic path(s) and the domain(s) the question belongs to.
 2. **Retrieve** - query the GraphRAG knowledge base the administrator linked to
    that domain, nudging the query with the scope's topic names, and merge both
    halves into one answer context with node paths and sources.
 
-If either half is missing (nothing matched in the tree, no KB linked, the KB
+If either half is missing (nothing matched in the graph, no KB linked, the KB
 call fails) the other still answers and the result says what was skipped.
 ``graph_search`` is injectable so the merge logic is testable without an index.
 """
@@ -22,11 +22,13 @@ from typing import Any, Awaitable, Callable
 
 from pathmind.database.models import KnowledgeDomain
 
+from . import graph as kgraph
 from . import service as svc
 
 GraphSearch = Callable[..., Awaitable[dict[str, Any]]]
 
 MAX_KBS = 2
+MAX_FACTS = 40
 
 
 async def _admin_graph_search(*, query: str, kb_name: str, event_sink=None, **kwargs: Any) -> dict[str, Any]:
@@ -50,7 +52,11 @@ def _excerpt(db, node_id: str, chars: int) -> tuple[str, str]:
     except svc.TreeError:
         return "", ""
     first = detail["excerpts"][0] if detail["excerpts"] else None
-    return (first["text"], first["filename"]) if first else ("", "")
+    if not first:
+        return "", ""
+    from .llm_view import clean_excerpt
+
+    return clean_excerpt(first["text"]), first["filename"]
 
 
 async def knowledge_search(
@@ -77,14 +83,18 @@ async def knowledge_search(
         for h in hits:
             text, filename = _excerpt(db, h["id"], excerpt_chars)
             trail = " > ".join([h["domain"], *h["path"], h["title"]])
-            block = f"### {trail}\n{h['summary']}".strip()
+            props = kgraph._fmt_props(h.get("properties"))  # noqa: SLF001
+            kind = f"{h.get('label', 'Concept')}{props}"
+            block = f"### {trail}\n{kind}\n{h['summary']}".strip()
             if text:
                 block += f"\n\n(source excerpt: {filename})\n{text}"
             tree_blocks.append(block)
             tree_sources.append(
                 {"type": "knowledge_tree", "title": h["title"], "node_id": h["id"],
-                 "domain": h["domain"], "path": h["path"], "source": filename or h["domain"]}
+                 "label": h.get("label"), "domain": h["domain"], "path": h["path"],
+                 "source": filename or h["domain"]}
             )
+        facts = kgraph.triples(db, {h["id"] for h in hits}, limit=MAX_FACTS) if hits else []
         # Which GraphRAG knowledge bases to ask: explicit > the asked domain's >
         # the hits' domains' > (nothing matched) every linked domain, capped.
         domains = {d.id: d for d in db.query(KnowledgeDomain).all()}
@@ -105,6 +115,25 @@ async def knowledge_search(
                 for d in sorted(domains.values(), key=lambda d: d.name):
                     want(d.kb_name)
         focus = list(dict.fromkeys(h["title"] for h in hits))[:5]
+        # Personal overlay (hidden from the learner): supplements, never overrides.
+        personal_blocks: list[str] = []
+        personal_sources: list[dict[str, Any]] = []
+        try:
+            from pathmind.multi_user.context import get_current_user
+            from pathmind.services.knowledge_branch import overlay
+
+            uid = str(get_current_user().id or "")
+            main_titles = {h["title"].strip().lower() for h in hits}
+            for p in overlay.search(db, uid, query, limit=3) if uid else []:
+                if p["title"].strip().lower() in main_titles:
+                    continue  # main knowledge graph wins on conflict
+                personal_blocks.append(f"### {p['title']}\n{p['summary']}".strip())
+                personal_sources.append(
+                    {"type": "personal_branch", "title": p["title"], "node_id": p["id"],
+                     "source": p.get("source_doc") or "personal notes"}
+                )
+        except Exception:  # noqa: BLE001 - overlay is optional
+            pass
 
     notes: list[str] = []
     graph_results: list[dict[str, Any]] = []
@@ -113,7 +142,7 @@ async def knowledge_search(
     for name in kbs:
         try:
             result = await graph(query=graph_query, kb_name=name, event_sink=event_sink)
-        except Exception as exc:  # noqa: BLE001 - a broken index must not hide the tree half
+        except Exception as exc:  # noqa: BLE001 - a broken index must not hide the knowledge-graph half
             notes.append(f"GraphRAG '{name}' was unavailable ({type(exc).__name__}).")
             continue
         if result.get("error_type"):
@@ -128,11 +157,15 @@ async def knowledge_search(
     if not kbs:
         notes.append("No GraphRAG knowledge base is linked to the matching domain.")
     if not hits:
-        notes.append("No curated topic matched the question.")
+        notes.append("No curated knowledge-graph node matched the question.")
 
     parts: list[str] = []
     if tree_blocks:
-        parts.append("## Curated knowledge tree\n\n" + "\n\n".join(tree_blocks))
+        parts.append("## Curated knowledge graph\n\n" + "\n\n".join(tree_blocks))
+    if facts:
+        parts.append("## Graph facts\n\n" + "\n".join(facts))
+    if personal_blocks:
+        parts.append("## Personal notes (supplementary; the curated knowledge graph wins on conflict)\n\n" + "\n\n".join(personal_blocks))
     for g in graph_results:
         if g["answer"]:
             parts.append(f"## GraphRAG ({g['kb_name']})\n\n{g['answer']}")
@@ -143,6 +176,7 @@ async def knowledge_search(
         "content": "\n\n".join(parts) if parts else "Nothing found.",
         "scope": [{k: h[k] for k in ("id", "title", "domain", "path", "score")} for h in hits],
         "graph": graph_results,
-        "sources": [*tree_sources, *graph_sources],
+        "facts": facts,
+        "sources": [*tree_sources, *personal_sources, *graph_sources],
         "notes": notes,
     }

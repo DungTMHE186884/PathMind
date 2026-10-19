@@ -6,7 +6,7 @@ disclosure pipeline, which already exists and is source-agnostic: one manifest
 line per tool in the system prompt, full schemas only after the model calls
 ``load_tools`` (see :mod:`pathmind.runtime.registry.deferred_tools`). What
 they do *not* share is authorisation, so that stays per-kind and explicit in
-:mod:`~pathmind.runtime.providers.authorize`.
+
 
 Layering — this package sits **below** the tool registry:
 
@@ -28,7 +28,6 @@ luck of import order.
 from __future__ import annotations
 
 from pathmind.runtime.providers.allowlist import Allowlist
-from pathmind.runtime.providers.authorize import authorize_mcp_tools
 from pathmind.runtime.providers.scope import ToolScope
 from pathmind.runtime.providers.text import (
     MANIFEST_DESCRIPTION_MAX_CHARS,
@@ -39,6 +38,5 @@ __all__ = [
     "MANIFEST_DESCRIPTION_MAX_CHARS",
     "Allowlist",
     "ToolScope",
-    "authorize_mcp_tools",
     "sanitize_provider_text",
 ]

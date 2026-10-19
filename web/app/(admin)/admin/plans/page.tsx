@@ -14,15 +14,12 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import AdminTabs from "@/components/admin/AdminTabs";
-import ModelPriceTable from "@/components/admin/ModelPriceTable";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { fetchAuthStatus } from "@/lib/auth";
 import { inputClass as settingsInputClass } from "@/components/settings/shared";
 import {
   createPlan,
   deletePlan,
-  getAdminStats,
   getAvailableModels,
   listAdminPlans,
   updatePlanDetails,
@@ -48,6 +45,7 @@ const FEATURE_LABELS: Record<PlanFeature, string> = {
   memory: "Memory",
   reading: "Immersive Reading",
   watching: "Immersive Watching",
+  contribute: "Recommend branches to R&D",
 };
 const LIMIT_LABELS: Record<PlanLimit, string> = {
   max_skills: "Max own skills",
@@ -174,7 +172,6 @@ export default function AdminPlansPage() {
   const [plans, setPlans] = useState<AdminSubscriptionPlan[]>([]);
   const [drafts, setDrafts] = useState<Record<string, Draft>>({});
   const [availableModels, setAvailableModels] = useState<string[]>([]);
-  const [pendingPayments, setPendingPayments] = useState(0);
   const [priceList, setPriceList] = useState<ModelPriceList | null>(null);
   const [modelInput, setModelInput] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
@@ -197,10 +194,9 @@ export default function AdminPlansPage() {
   const load = useCallback(async () => {
     setError("");
     try {
-      const [fetchedPlans, models, stats, prices] = await Promise.all([
+      const [fetchedPlans, models, prices] = await Promise.all([
         listAdminPlans(),
         getAvailableModels().catch(() => [] as string[]),
-        getAdminStats().catch(() => null),
         listModelPrices().catch(() => null),
       ]);
       setPriceList(prices);
@@ -209,7 +205,6 @@ export default function AdminPlansPage() {
         Object.fromEntries(fetchedPlans.map((p) => [p.id, toDraft(p)])),
       );
       setAvailableModels(models);
-      setPendingPayments(stats?.pending_payments ?? 0);
     } catch (err: unknown) {
       setError(
         err instanceof Error
@@ -303,18 +298,17 @@ export default function AdminPlansPage() {
   }
 
   return (
-    <div className="h-screen overflow-y-auto bg-[var(--background)] px-4 py-8 text-[var(--foreground)] sm:px-6 lg:px-8">
+    <div className="h-full overflow-y-auto bg-[var(--background)] px-4 py-8 text-[var(--foreground)] sm:px-6 lg:px-8">
       <div className="mx-auto max-w-6xl">
-        <AdminTabs pendingPayments={pendingPayments} />
 
         <div className="mb-6 flex flex-col justify-between gap-3 sm:flex-row sm:items-end">
           <div>
             <h1 className="font-serif text-xl font-semibold text-[var(--foreground)]">
-              {t("Plans & model configuration")}
+              {t("Plans")}
             </h1>
             <p className="mt-1 text-xs text-[var(--muted-foreground)]">
               {t(
-                "Pricing, token/storage quotas and the list of AI models for each plan. Changes apply immediately to all users of the plan.",
+                "Prices, credit and storage quotas, features and the models each plan may use. Model prices and providers are on the Models page. Changes apply immediately to all users of the plan.",
               )}
             </p>
           </div>
@@ -768,19 +762,6 @@ export default function AdminPlansPage() {
           </div>
         )}
 
-        {!loading && priceList && (
-          <div className="mt-8">
-            <ModelPriceTable
-              key={JSON.stringify(priceList.prices)}
-              data={priceList}
-              onChanged={() => {
-                flash(t("Model price list updated."));
-                void load();
-              }}
-              onError={setError}
-            />
-          </div>
-        )}
       </div>
 
       {showCreate && (

@@ -40,9 +40,6 @@ export function SystemWorkspaceSnapshot() {
         <Link href="/space/skills" className="hover:underline">
           {t('Skills')}
         </Link>
-        <Link href="/space/mcp" className="hover:underline">
-          {t('MCP')}
-        </Link>
       </div>
       {error && (
         <p role="alert" className="mt-2 text-xs text-[var(--destructive)]">

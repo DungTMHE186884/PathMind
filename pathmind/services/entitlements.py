@@ -9,6 +9,7 @@ Stored per plan in ``subscription_plans.entitlements`` (JSON, editable in
 ``memory``            Memory workbench (view/edit the three memory layers, run AI consolidation)
 ``reading``           Personalized Learning → Reading
 ``watching``          Personalized Learning → Watching (video learning)
+``contribute``        Educator contributions: own knowledge branch + recommending it to R&D
 ``max_skills``        own skills (created, uploaded, added from Community/EduHub)
 ``max_partners``      partners the user created
 ``mastery_per_month`` new mastery (learning) paths per calendar month (UTC)
@@ -37,7 +38,17 @@ from pathmind.services.i18n import t as _t
 
 logger = logging.getLogger(__name__)
 
-FEATURE_KEYS = ("community", "space_extras", "courses", "memory", "reading", "watching")
+FEATURE_KEYS = (
+    "community",
+    "space_extras",
+    "courses",
+    "memory",
+    "reading",
+    "watching",
+    # Educator contributions: personal knowledge branch edits and recommending
+    # a branch to R&D. Paid plans only (the gate that replaces role approval).
+    "contribute",
+)
 LIMIT_KEYS = ("max_skills", "max_partners", "mastery_per_month", "books_per_month")
 MONTHLY_KEYS = {"mastery_per_month": "mastery", "books_per_month": "books"}
 PERIODS = ("month", "lifetime")
@@ -49,6 +60,7 @@ UNLIMITED: dict[str, Any] = {
     "memory": True,
     "reading": True,
     "watching": True,
+    "contribute": True,
     "max_skills": None,
     "max_partners": None,
     "mastery_per_month": None,
@@ -63,6 +75,7 @@ FREE: dict[str, Any] = {
     "memory": False,
     "reading": False,
     "watching": False,
+    "contribute": False,
     "max_skills": 0,
     "max_partners": 1,
     # A one-time trial rather than a monthly allowance.
@@ -80,6 +93,7 @@ PLAN_DEFAULTS: dict[str, dict[str, Any]] = {
         "memory": True,
         "reading": True,
         "watching": True,
+        "contribute": True,
         "max_skills": 5,
         "max_partners": 3,
         "mastery_per_month": 10,
@@ -93,6 +107,7 @@ PLAN_DEFAULTS: dict[str, dict[str, Any]] = {
         "memory": True,
         "reading": True,
         "watching": True,
+        "contribute": True,
         "max_skills": 20,
         "max_partners": 10,
         "mastery_per_month": None,
@@ -205,7 +220,7 @@ def _plan_for(user_id: str) -> tuple[str, str, float, dict[str, Any]]:
 
 def current_entitlements(user: Any = None) -> dict[str, Any]:
     user = user or _current_user()
-    if getattr(user, "is_admin", False):
+    if getattr(user, "is_admin", False) or getattr(user, "is_rnd", False):
         return dict(UNLIMITED)
     return dict(_plan_for(user.id)[3])
 

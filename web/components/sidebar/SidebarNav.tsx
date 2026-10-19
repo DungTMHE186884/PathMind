@@ -99,6 +99,23 @@ export function SidebarNav({
   const { has } = useCapabilityAccess();
   const communityUnread = useSignedInCommunityUnread();
   const planLock = usePlanLock();
+  const auth = useAuthStatus();
+  /** Role-gated entries (the main knowledge tree is hidden from learners). */
+  const roleAllows = useCallback(
+    (href: string) => {
+      const roles = NAV_BY_HREF.get(href)?.roles;
+      if (!roles) return true;
+      if (!auth.enabled) return true;
+      const learner = !auth.isAdmin && !auth.isRnd && !auth.isEducator;
+      return (
+        (auth.isAdmin && roles.includes('admin')) ||
+        (auth.isRnd && roles.includes('rnd')) ||
+        (auth.isEducator && roles.includes('educator')) ||
+        (learner && roles.includes('user'))
+      );
+    },
+    [auth.enabled, auth.isAdmin, auth.isRnd, auth.isEducator],
+  );
 
   const [layout, setLayout] = useState<SidebarNavLayout | null>(null);
   const [menu, setMenu] = useState<RowMenu | null>(null);
@@ -193,7 +210,7 @@ export function SidebarNav({
   if (collapsed) {
     return (
       <nav className="mt-1 flex w-full flex-col items-center gap-1 px-1.5">
-        {resolved.visible.map((href) => (
+        {resolved.visible.filter(roleAllows).map((href) => (
           <RailRow
             key={href}
             href={href}
@@ -340,7 +357,7 @@ export function SidebarNav({
   return (
     <nav className="px-2 pt-1">
       <div className="space-y-px">
-        {resolved.visible.map((href) => (
+        {resolved.visible.filter(roleAllows).map((href) => (
           <Fragment key={href}>{renderRow(href, visibleDrag)}</Fragment>
         ))}
       </div>

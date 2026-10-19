@@ -326,17 +326,6 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"Failed to close application container: {e}")
 
-    # Close MCP server connections. Each one owns an AsyncExitStack inside its
-    # own task, so they must be torn down here rather than left to interpreter
-    # exit (stdio servers would otherwise leak child processes).
-    try:
-        from pathmind.services.mcp import get_mcp_manager
-
-        await get_mcp_manager().shutdown()
-        logger.info("MCP connections closed")
-    except Exception as e:
-        logger.warning(f"Failed to close MCP connections: {e}")
-
     # Close pooled LLM SDK clients so their keep-alive sockets and transports
     # are released deterministically instead of waiting for interpreter GC.
     try:
@@ -498,6 +487,12 @@ from pathmind.api.routers import (
     billing,
     book,
     capabilities,
+    admin_ops,
+    answer_ratings,
+    knowledge_branch,
+    recommendations,
+    rewards,
+    system_status,
     knowledge_tree,
     capabilities_settings,
     co_writer,
@@ -509,7 +504,6 @@ from pathmind.api.routers import (
     knowledge,
     marginnote4,
     mastery_path,
-    mcp_settings,
     memory,
     memory_sharing,
     notebook,
@@ -527,8 +521,6 @@ from pathmind.api.routers import (
     sessions,
     settings,
     skills,
-    space_cli_apps,
-    space_mcp,
     system,
     unified_ws,
     video_learning,
@@ -545,6 +537,14 @@ from pathmind.api.routers.multi_user import router as multi_user_router  # noqa:
 from pathmind.database.connection import init_database
 init_database()
 
+# Seed files in data/seed/ (accounts, knowledge graph, LLM providers...) load once.
+try:
+    from pathmind.services.seed import apply_pending as _apply_seeds
+
+    _apply_seeds()
+except Exception as _seed_exc:  # noqa: BLE001 - never block start-up
+    logging.getLogger(__name__).warning("Seed loading skipped: %s", _seed_exc)
+
 # Auth router is public — login/logout/register/status require no token
 app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
 app.include_router(outputs.router, prefix="/files/outputs", tags=["outputs"])
@@ -558,6 +558,7 @@ app.include_router(
 # require_auth is a no-op when AUTH_ENABLED=false, so this is safe for local use.
 from pathmind.api.routers.auth import (  # noqa: E402
     require_admin,
+    require_rnd,
     require_learning_surface,
 )
 
@@ -584,6 +585,26 @@ app.include_router(
     prefix="/api/knowledge-tree",
     tags=["knowledge-tree"],
     dependencies=_auth,
+)
+app.include_router(
+    knowledge_branch.router,
+    prefix="/api/knowledge-branch",
+    tags=["knowledge-branch"],
+    dependencies=_auth,
+)
+app.include_router(
+    recommendations.router, prefix="/api/recommendations", tags=["recommendations"], dependencies=_auth
+)
+app.include_router(
+    answer_ratings.router, prefix="/api/answer-ratings", tags=["answer-ratings"], dependencies=_auth
+)
+app.include_router(admin_ops.router, prefix="/api/admin-ops", tags=["admin-ops"], dependencies=_admin)
+app.include_router(rewards.router, prefix="/api/rewards", tags=["rewards"], dependencies=_auth)
+app.include_router(
+    system_status.router,
+    prefix="/api/system-status",
+    tags=["system-status"],
+    dependencies=_auth + [Depends(require_rnd)],
 )
 app.include_router(friends.router, prefix="/api/friends", tags=["friends"], dependencies=_auth)
 app.include_router(partner_shares.router, prefix="/api/social", tags=["social"], dependencies=_auth)
@@ -690,32 +711,6 @@ app.include_router(
     prefix="/api/settings/video-learning",
     tags=["video-learning-settings"],
     dependencies=_admin,
-)
-app.include_router(
-    mcp_settings.router,
-    prefix="/api/settings/mcp",
-    tags=["mcp-settings"],
-    dependencies=_auth,
-)
-# Per-user MCP servers. Deliberately only ``_auth``: the router's own routes
-# resolve the owner server-side, and everything a non-admin can reach through it
-# is remote-transport-only (see the module docstring). The admin registry above
-# keeps its own ``require_admin``.
-app.include_router(
-    space_mcp.router,
-    prefix="/api/space/mcp",
-    tags=["space-mcp"],
-    dependencies=_auth,
-)
-# CLI apps. Only ``_auth`` here as well, but for a different reason: the two
-# routes that install or remove an app carry their own ``require_admin``, and
-# what is left for an ordinary account is reading the catalog and toggling its
-# own preference among apps an administrator already granted it.
-app.include_router(
-    space_cli_apps.router,
-    prefix="/api/space/cli-apps",
-    tags=["space-cli-apps"],
-    dependencies=_auth,
 )
 app.include_router(skills.router, prefix="/api/skills", tags=["skills"], dependencies=_auth)
 app.include_router(personas.router, prefix="/api", tags=["personas"], dependencies=_auth)

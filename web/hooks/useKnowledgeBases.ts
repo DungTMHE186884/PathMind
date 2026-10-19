@@ -5,8 +5,6 @@ import type { EmbeddingModelSelection } from "@/features/knowledge/model/types";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  connectImaKnowledgeBase as connectImaApi,
-  connectWeKnora as connectWeKnoraApi,
   connectLinkedFolder as connectLinkedFolderApi,
   connectMarginNote4Library as connectMarginNote4Api,
   connectObsidianVault as connectObsidianApi,
@@ -25,7 +23,6 @@ import {
   type KnowledgeUploadPolicy,
   type RagProviderSummary,
 } from "@/features/knowledge/api/catalog";
-import { connectLightRagServer as connectLightRagServerApi } from "@/features/knowledge/api/engines";
 import { uploadKnowledgeBaseFiles as uploadKbApi } from "@/features/knowledge/api/files";
 import {
   DEFAULT_UPLOAD_POLICY,
@@ -38,9 +35,9 @@ import { useKnowledgeHistory } from "@/hooks/useKnowledgeHistory";
 
 const DEFAULT_PROVIDER_FALLBACK: RagProviderSummary[] = [
   {
-    id: "llamaindex",
-    name: "LlamaIndex",
-    description: "Pure vector retrieval, fastest processing speed.",
+    id: "lightrag",
+    name: "LightRAG",
+    description: "Graph + vector retrieval for documents added over time.",
   },
 ];
 
@@ -185,7 +182,6 @@ export function useKnowledgeBases() {
       name: string;
       provider: string;
       files: File[];
-      pageindexMode?: "flash" | "standard";
       searchMode?: string;
       indexingLLM?: IndexingLLMSelection;
       embeddingModel?: EmbeddingModelSelection;
@@ -351,51 +347,9 @@ export function useKnowledgeBases() {
     [load],
   );
 
-  const connectLightRagServer = useCallback(
-    async (params: {
-      name: string;
-      serverUrl: string;
-      apiKey?: string;
-      mode?: string;
-    }) => {
-      await connectLightRagServerApi(params);
-      invalidateKnowledgeCaches();
-      await load({ force: true, showSpinner: false });
-    },
-    [load],
-  );
-
   const connectMarginNote4 = useCallback(
     async (params: { name: string }) => {
       await connectMarginNote4Api(params);
-      invalidateKnowledgeCaches();
-      await load({ force: true, showSpinner: false });
-    },
-    [load],
-  );
-
-  const connectWeKnora = useCallback(
-    async (params: {
-      name: string;
-      serverUrl: string;
-      apiKey: string;
-      knowledgeBaseId: string;
-    }) => {
-      await connectWeKnoraApi(params);
-      invalidateKnowledgeCaches();
-      await load({ force: true, showSpinner: false });
-    },
-    [load],
-  );
-
-  const connectIma = useCallback(
-    async (params: {
-      name: string;
-      clientId: string;
-      apiKey: string;
-      knowledgeBaseId: string;
-    }) => {
-      await connectImaApi(params);
       invalidateKnowledgeCaches();
       await load({ force: true, showSpinner: false });
     },
@@ -425,10 +379,7 @@ export function useKnowledgeBases() {
     deleteKb,
     connectObsidian,
     connectLinkedFolder,
-    connectLightRagServer,
-    connectWeKnora,
     connectMarginNote4,
-    connectIma,
   };
 }
 

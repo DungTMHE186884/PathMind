@@ -169,6 +169,11 @@ class SignupRequest(BaseModel):
     password: str = ""
     confirm_password: str | None = None
     accept_terms: bool = False
+    # "user" (learner) or "educator". Educators need no approval: what they can
+    # do with it (edit a knowledge branch, contribute to R&D) is behind a paid plan.
+    role: str = "user"
+    # Signed invitation token (R&D staff are invited by email, never self-assigned).
+    invite: str = ""
 
 
 class EmailCodeRequest(BaseModel):
@@ -249,8 +254,8 @@ class SetRoleRequest(BaseModel):
     @field_validator("role")
     @classmethod
     def role_valid(cls, v: str) -> str:
-        if v not in ("admin", "user"):
-            raise ValueError("Role must be 'admin' or 'user'")
+        if v not in ("admin", "rnd", "educator", "user"):
+            raise ValueError("Role must be 'admin', 'rnd', 'educator' or 'user'")
         return v
 
 
@@ -555,6 +560,47 @@ async def require_admin(
     return payload
 
 
+def _live_role(payload: TokenPayload | None) -> str:
+    """Role from the identity store (a token issued before an upgrade is stale)."""
+    if payload is None:
+        return ""
+    info = get_user_info(payload.username)
+    return str((info or {}).get("role") or payload.role)
+
+
+async def require_educator(
+    payload: TokenPayload | None = Depends(require_auth),
+) -> TokenPayload:
+    """Educator accounts (admins pass too). Contribution features also check the plan."""
+    if not AUTH_ENABLED:
+        return _local_admin_token_payload()
+    if payload is None or _live_role(payload) not in ("educator", "admin"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=_t("auth.educator_only"))
+    return payload
+
+
+async def require_rnd(
+    payload: TokenPayload | None = Depends(require_auth),
+) -> TokenPayload:
+    """R&D accounts (admins pass too)."""
+    if not AUTH_ENABLED:
+        return _local_admin_token_payload()
+    if payload is None or _live_role(payload) not in ("rnd", "admin"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=_t("auth.rnd_only"))
+    return payload
+
+
+async def require_rnd_only(
+    payload: TokenPayload | None = Depends(require_auth),
+) -> TokenPayload:
+    """R&D accounts only: changes to the main knowledge tree (administrators just read it)."""
+    if not AUTH_ENABLED:
+        return _local_admin_token_payload()
+    if payload is None or _live_role(payload) != "rnd":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=_t("auth.rnd_only"))
+    return payload
+
+
 async def optional_auth(
     authorization: str | None = Header(default=None, alias="Authorization"),
     dt_token: str | None = Cookie(default=None, alias=_COOKIE_NAME),
@@ -678,9 +724,12 @@ async def auth_status(
     preset: AccountPreset | None = None
     learning_policy = None
     profile_fields: dict = {}
+    live_role = payload.role if payload else None
     if payload is not None:
         info = get_user_info(payload.username)
         if info:
+            # The token's role can be stale after a self-service upgrade.
+            live_role = str(info.get("role") or payload.role)
             profile_fields = {
                 "full_name": str(info.get("full_name") or ""),
                 "email": str(info.get("email") or ""),
@@ -703,8 +752,8 @@ async def auth_status(
         authenticated=payload is not None,
         user_id=payload.user_id if payload else None,
         username=payload.username if payload else None,
-        role=payload.role if payload else None,
-        is_admin=payload.role == "admin" if payload else False,
+        role=live_role,
+        is_admin=live_role == "admin",
         avatar=avatar,
         preset=preset,
         learning_policy=learning_policy,
@@ -759,16 +808,27 @@ def _login_check_locked(keys: tuple[str, str]) -> None:
         )
 
 
+def _lockout_limits() -> tuple[int, int]:
+    """(max failures, lock seconds): administrator settings win over the environment."""
+    try:
+        from pathmind.services import system_settings as _ss
+
+        return _ss.get_int("auth.login_max_failures"), _ss.get_int("auth.login_lock_minutes") * 60
+    except Exception:  # noqa: BLE001
+        return _LOGIN_MAX_FAILURES, _LOGIN_LOCK_SECONDS
+
+
 def _login_record_failure(keys: tuple[str, str]) -> None:
     import time
 
     now = time.monotonic()
-    for key, limit in ((keys[0], _LOGIN_MAX_FAILURES), (keys[1], _LOGIN_MAX_FAILURES * 4)):
-        hits = [t for t in _login_failures.get(key, []) if now - t < _LOGIN_LOCK_SECONDS]
+    max_failures, lock_seconds = _lockout_limits()
+    for key, limit in ((keys[0], max_failures), (keys[1], max_failures * 4)):
+        hits = [t for t in _login_failures.get(key, []) if now - t < lock_seconds]
         hits.append(now)
         _login_failures[key] = hits
         if len(hits) >= limit:
-            _login_locked_until[key] = now + _LOGIN_LOCK_SECONDS
+            _login_locked_until[key] = now + lock_seconds
             _login_failures[key] = []
             logger.warning("Login locked for %s after %d failed attempts", key, len(hits))
 
@@ -964,6 +1024,134 @@ def _register_throttle(request: Request | None) -> None:
     _register_hits[ip] = hits
 
 
+class ForgotRequest(BaseModel):
+    email: str = Field(min_length=3, max_length=255)
+
+
+class ResetRequest(BaseModel):
+    token: str = Field(min_length=10, max_length=2000)
+    password: str = Field(min_length=1, max_length=200)
+
+
+_forgot_hits: dict[str, list[float]] = {}
+
+
+@router.post("/password/forgot")
+async def forgot_password(body: ForgotRequest, request: Request = None) -> dict:
+    """Email a reset link. The answer never reveals whether the address is registered."""
+    import time
+
+    if not AUTH_ENABLED or POCKETBASE_ENABLED:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Password reset is not available.")
+    from pathmind.multi_user.identity import find_user_by_email
+    from pathmind.services import notifications, password_reset
+
+    email = body.email.strip().lower()
+    now = time.monotonic()
+    hits = [t for t in _forgot_hits.get(email, []) if now - t < 3600]
+    if len(hits) >= 3:
+        return {"ok": True}  # silently capped: no mail bombing, no enumeration
+    _forgot_hits[email] = [*hits, now]
+    found = find_user_by_email(email)
+    if found is not None and found[1].get("email") and not found[1].get("disabled"):
+        username, record = found
+        base = str(request.headers.get("origin") or request.base_url).rstrip("/") if request else ""
+        link = f"{base}/reset-password?token={password_reset.make_token(username, str(record.get('hash') or ''))}"
+        if _email_verification.smtp_configured():
+            notifications.send_email(
+                str(record["email"]), "Reset your PathMind password",
+                f"Open this link to choose a new password (valid for 1 hour):\n{link}\n\n"
+                "If you did not ask for this, ignore this email.",
+            )
+        else:
+            logger.warning("Password reset link for %s (SMTP is off): %s", username, link)
+    return {"ok": True}
+
+
+@router.post("/password/reset")
+async def reset_password(body: ResetRequest) -> dict:
+    from pathmind.multi_user.identity import get_user, set_password
+    from pathmind.services import notifications, password_reset
+    from pathmind.services.auth import hash_password
+
+    parsed = password_reset.read_token(body.token)
+    record = get_user(parsed[0]) if parsed else None
+    if parsed is None or record is None or not password_reset.still_valid(parsed[1], str(record.get("hash") or "")):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="This reset link is invalid or has expired.")
+    username = parsed[0]
+    problem = _password_problem(body.password, username, str(record.get("email") or ""))
+    if problem:
+        raise _signup_error("password", problem)
+    set_password(username, hash_password(body.password))
+    try:
+        from pathmind.database.connection import get_db_session
+        from pathmind.services import audit
+
+        with get_db_session() as db:
+            audit.record(db, str(record.get("id") or ""), "auth.password_reset", target_type="user",
+                         target_id=str(record.get("id") or ""))
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Could not audit password reset: %s", exc)
+    notifications.send_email(
+        str(record.get("email") or ""), "Your PathMind password was changed",
+        "Your password was just changed. If this was not you, contact an administrator.",
+    )
+    return {"ok": True}
+
+
+class InviteRequest(BaseModel):
+    email: str = Field(min_length=3, max_length=255)
+
+
+@router.post("/invite")
+async def invite_rnd(
+    body: InviteRequest,
+    request: Request,
+    payload: TokenPayload | None = Depends(require_admin),
+) -> dict:
+    """Administrator invites an R&D member by email (signed link, valid 7 days)."""
+    from pathmind.multi_user.identity import find_user_by_email
+    from pathmind.services import invites as _invites
+
+    email = body.email.strip().lower()
+    if not _EMAIL_RE.match(email):
+        raise _signup_error("email", "auth.email_invalid")
+    if find_user_by_email(email) is not None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="An account with this email already exists.")
+    base = str(request.headers.get("origin") or request.base_url).rstrip("/")
+    from pathmind.database.connection import get_db_session
+
+    with get_db_session() as db:
+        result = _invites.create(
+            db, email, base, str(getattr(payload, "user_id", "") or ""),
+            getattr(payload, "username", "An administrator") or "An administrator",
+        )
+    return {"ok": True, **result}
+
+
+@router.get("/invitations")
+async def list_invitations(payload: TokenPayload | None = Depends(require_admin)) -> dict:
+    from pathmind.database.connection import get_db_session
+    from pathmind.services import invites as _invites
+
+    with get_db_session() as db:
+        return {"items": _invites.list_all(db)}
+
+
+@router.delete("/invitations/{invitation_id}")
+async def revoke_invitation(invitation_id: str, payload: TokenPayload | None = Depends(require_admin)) -> dict:
+    from pathmind.database.connection import get_db_session
+    from pathmind.services import invites as _invites
+
+    try:
+        with get_db_session() as db:
+            return _invites.revoke(db, str(getattr(payload, "user_id", "") or ""), invitation_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+
+
 @router.post("/register", status_code=status.HTTP_201_CREATED)
 async def register(body: SignupRequest, request: Request = None) -> dict:
     """
@@ -1013,7 +1201,22 @@ async def register(body: SignupRequest, request: Request = None) -> dict:
     first_user = is_first_user()
     if not first_user:
         _register_throttle(request)
-    role = "admin" if first_user else "user"
+    role = "admin" if first_user else ("educator" if body.role == "educator" else "user")
+    invited = None
+    if body.invite and not first_user:
+        from pathmind.database.connection import get_db_session as _gdb
+        from pathmind.services import invites as _invites
+
+        with _gdb() as _db:
+            _inv = _invites.lookup(_db, body.invite)
+            invited = (
+                {"id": _inv.id, "email": _inv.email, "role": _inv.role} if _inv is not None else None
+            )
+        if invited is None:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="This invitation is invalid, used or expired.")
+        if invited["email"] != email:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Use the email address the invitation was sent to.")
+        role = invited["role"]
 
     add_user(
         username,
@@ -1056,6 +1259,20 @@ async def register(body: SignupRequest, request: Request = None) -> dict:
         delivery = _email_verification.issue_code(user_id, email).get("delivery", "none")
     except Exception as exc:
         logger.warning("Could not issue email verification code: %s", exc)
+
+    if invited is not None:  # receiving the invitation proves control of the address
+        try:
+            _email_verification.mark_verified(username, user_id)
+            from pathmind.database.connection import get_db_session as _gdb2
+            from pathmind.database.models import Invitation as _Invitation
+            from pathmind.services import invites as _invites2
+
+            with _gdb2() as _db2:
+                _row = _db2.get(_Invitation, invited["id"])
+                if _row is not None:
+                    _invites2.mark_accepted(_db2, _row, user_id)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Could not finish accepting invitation: %s", exc)
 
     logger.info(f"User registered: '{username}' (role={role})")
     return {
@@ -1666,3 +1883,37 @@ async def update_user_role(
         f"Admin '{current.username if current else 'local'}' set '{username}' role to {body.role!r}"
     )
     return {"ok": True, "username": username, "role": body.role}
+
+
+@router.post("/role/educator", status_code=status.HTTP_200_OK)
+async def become_educator(
+    response: Response,
+    payload: TokenPayload | None = Depends(require_auth),
+) -> dict:
+    """Self-service upgrade learner -> educator (no approval).
+
+    Educator is a label for people who share knowledge; what it unlocks (a
+    knowledge branch and contributions to R&D) is gated by the paid plan, so no
+    review of the role itself is needed. Admins and R&D accounts keep their role.
+    """
+    if payload is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
+    role = _live_role(payload)
+    if role == "user":
+        if not set_role(payload.username, "educator"):
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+        role = "educator"
+        try:
+            from pathmind.database.connection import get_db_session
+            from pathmind.services.quota_service import ensure_db_user
+
+            with get_db_session() as db:
+                ensure_db_user(db, payload.user_id, payload.username, role)
+        except Exception as db_exc:  # noqa: BLE001
+            logger.warning("Failed to mirror educator upgrade for '%s': %s", payload.username, db_exc)
+        token = create_token(payload.username, role, payload.user_id)
+        response.set_cookie(value=token, max_age=_COOKIE_MAX_AGE, **_cookie_attrs())
+        logger.info(f"User '{payload.username}' became an educator")
+    elif role != "educator":
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"Your account is already {role}.")
+    return {"ok": True, "role": role}

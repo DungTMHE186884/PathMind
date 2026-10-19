@@ -235,7 +235,7 @@ CITABLE_TOOLS: frozenset[str] = frozenset(
 
 
 def _is_citable_tool(name: str) -> bool:
-    return name in CITABLE_TOOLS or name.startswith(("pageindex_cloud_", "pageindex_oss_"))
+    return name in CITABLE_TOOLS
 
 
 # Token budget for the note summarization sidecar.
@@ -535,7 +535,6 @@ class ResearchPipeline:
         client = self._build_client()
 
         try:
-            await self._prepare_pageindex_tools()
             return await self._run_inner(
                 context=context,
                 topic=topic,
@@ -1102,23 +1101,6 @@ class ResearchPipeline:
                     f"obsidian_list and obsidian_read. Do not call rag."
                 ),
                 kb_name=self.kb_name,
-            )
-        tool_context = getattr(self, "_pageindex_tool_context", None)
-        if tool_context is not None:
-            tools = ", ".join(tool.name for tool in tool_context.tools)
-            docs = (
-                "; ".join(
-                    f"{name} (doc_id: {doc_id})"
-                    for name, doc_id in sorted(tool_context.documents.items())
-                )
-                or "(no indexed documents)"
-            )
-            instructions = tool_context.instructions.strip()
-            return (
-                f"Attached PageIndex knowledge base: {self.kb_name!r}. Read it with "
-                f"these tools inside the research loop; do not call rag: {tools}. "
-                f"Documents: {docs}."
-                + (f"\nPageIndex SDK reading instructions:\n{instructions}" if instructions else "")
             )
         return self._t(
             "system.kb_system_note",
@@ -1995,21 +1977,6 @@ class ResearchPipeline:
     # ------------------------------------------------------------------
     # Tool composition for the block loop
     # ------------------------------------------------------------------
-    async def _prepare_pageindex_tools(self) -> None:
-        from pathmind.services.rag.pipelines.pageindex.tools import (
-            build_pageindex_tool_context,
-        )
-
-        self._pageindex_tool_context = await build_pageindex_tool_context(
-            self.kb_name,
-            base_registry=self.registry,
-        )
-        if self._pageindex_tool_context is not None:
-            self.registry = self._pageindex_tool_context.registry
-
-    def _pageindex_tool_names(self) -> list[str]:
-        tool_context = getattr(self, "_pageindex_tool_context", None)
-        return [tool.name for tool in tool_context.tools] if tool_context is not None else []
 
     def _block_tool_names(self) -> list[str]:
         """Tools available inside the per-block research loop.
@@ -2033,11 +2000,7 @@ class ResearchPipeline:
             requested_tools=self.enabled_tools,
             optional_whitelist=RESEARCH_OPTIONAL_TOOLS,
             mount_flags=ToolMountFlags(
-                has_kb=bool(
-                    self.kb_name
-                    and not self._is_obsidian_kb
-                    and not getattr(self, "_pageindex_tool_context", None)
-                ),
+                has_kb=bool(self.kb_name and not self._is_obsidian_kb),
                 has_sources=False,
                 has_memory=user_has_memory(),
                 has_notebooks=user_has_notebooks(),
@@ -2055,7 +2018,6 @@ class ResearchPipeline:
                 for name in RESEARCH_OBSIDIAN_READ_TOOLS
                 if name in RESEARCH_BLOCK_TOOL_ALLOWLIST and self._tool_in_registry(name)
             )
-        names.extend(self._pageindex_tool_names())
         return list(dict.fromkeys(names))
 
     def _build_block_tool_schemas(
@@ -2658,11 +2620,6 @@ class _BlockLoopHost:
             tool_timeout=self._pipeline.tool_timeout,
             tool_max_retries=self._pipeline.tool_max_retries,
         )
-        pageindex_sources = [
-            source for source in outcome.sources if source.get("type") == "pageindex"
-        ]
-        if pageindex_sources:
-            await self._stream.sources(pageindex_sources, source=SOURCE, stage="researching")
         if tool_calls:
             self._tool_rounds_used += 1
         await self._summarise_and_record(tool_calls, outcome)

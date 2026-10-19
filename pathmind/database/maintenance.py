@@ -140,7 +140,7 @@ def reconcile_identity_mirror(session_factory) -> None:
                     id=uid,
                     username=username,
                     password_hash="managed-by-auth-store",
-                    role=role if role in {"admin", "user"} else "user",
+                    role=role if role in {"admin", "rnd", "educator", "user"} else "user",
                 )
                 db.add(row)
             if row.username != username:
@@ -161,8 +161,30 @@ def reconcile_identity_mirror(session_factory) -> None:
         db.close()
 
 
+def drop_retired_columns(engine) -> None:
+    """Columns a model no longer declares; dropped so inserts never trip over them."""
+    from sqlalchemy import inspect, text
+
+    retired = {"knowledge_labels": ["layer"]}
+    inspector = inspect(engine)
+    tables = set(inspector.get_table_names())
+    with engine.begin() as conn:
+        for table, columns in retired.items():
+            if table not in tables:
+                continue
+            present = {c["name"] for c in inspector.get_columns(table)}
+            for column in columns:
+                if column in present:
+                    conn.execute(text(f'ALTER TABLE "{table}" DROP COLUMN "{column}"'))
+                    logger.info("DB migration: dropped column %s.%s", table, column)
+
+
 def run_startup_repairs(engine, session_factory) -> None:
-    for step in (lambda: ensure_unique_indexes(engine), lambda: reconcile_identity_mirror(session_factory)):
+    for step in (
+        lambda: ensure_unique_indexes(engine),
+        lambda: reconcile_identity_mirror(session_factory),
+        lambda: drop_retired_columns(engine),
+    ):
         try:
             step()
         except Exception as exc:  # never block startup

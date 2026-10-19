@@ -32,7 +32,7 @@ from pathmind.agents._shared.tool_composition import (
     compose_enabled_tools,
     default_optional_tools,
     partner_can_record_questions,
-    user_has_knowledge_tree,
+    user_has_knowledge_graph,
     user_has_mastery_topics,
     user_has_memory,
     user_has_notebooks,
@@ -588,20 +588,6 @@ class AgenticLoopPipeline:
         ``runtime.providers``. All the pipeline owns is translating the turn's
         context into a :class:`ToolScope`.
         """
-        self._pageindex_providers: set[str] = set()
-        self._pageindex_cloud_instructions = ""
-        self._pageindex_oss_instructions = ""
-        pageindex_tools: list[Any] = []
-        try:
-            for kb, bundle in await self._pageindex_sdk_tool_bundles(context):
-                self._pageindex_providers.add(bundle.provider)
-                if bundle.provider == "pageindex-oss":
-                    self._pageindex_oss_instructions = bundle.instructions
-                else:
-                    self._pageindex_cloud_instructions = bundle.instructions
-                pageindex_tools.extend(bundle.tools)
-        except Exception:
-            logger.warning("PageIndex SDK tool preparation failed", exc_info=True)
         try:
             view = await build_tool_view(
                 base_registry=self.registry,
@@ -614,8 +600,6 @@ class AgenticLoopPipeline:
                         "the tools listed in the prompt can be called."
                     ),
                 ),
-                overlay_tools=pageindex_tools,
-                preloaded_names=[tool.name for tool in pageindex_tools],
             )
         except Exception:
             # ``build_tool_view`` is contractually non-raising; this is defence
@@ -647,37 +631,6 @@ class AgenticLoopPipeline:
             ),
             exclusive_capability=self._exclusive_capability_active(context),
         )
-
-    async def _pageindex_sdk_tool_bundles(self, context: UnifiedContext):
-        from pathmind.multi_user.knowledge_access import resolve_kb
-        from pathmind.services.rag.factory import PAGEINDEX_OSS_PROVIDER, PAGEINDEX_PROVIDER
-        from pathmind.services.rag.pipelines.pageindex.tools import build_sdk_tool_bundle
-        from pathmind.services.rag.provider_binding import resolve_bound_provider
-
-        bundles = []
-        seen_providers: set[str] = set()
-        for kb in self._selected_kbs(context):
-            resource = resolve_kb(kb, require_write=False)
-            base_dir = str(resource.base_dir)
-            provider = resolve_bound_provider(base_dir, resource.name)
-            if provider not in {PAGEINDEX_PROVIDER, PAGEINDEX_OSS_PROVIDER}:
-                continue
-            # Cloud tools are account-wide and OSS selection already permits at
-            # most one local library, so one SDK bundle per provider is enough.
-            if provider in seen_providers:
-                continue
-            bundles.append(
-                (
-                    kb,
-                    await build_sdk_tool_bundle(
-                        resource.name,
-                        base_dir,
-                        provider=provider,
-                    ),
-                )
-            )
-            seen_providers.add(provider)
-        return bundles
 
     def _deferred_tools_manifest(self) -> str:
         view = getattr(self, "_tool_view", None)
@@ -733,7 +686,7 @@ class AgenticLoopPipeline:
                 # the investigation over attached sources), not the answer loop.
                 # Keep it off the answer surface even when sources are present.
                 has_sources=False,
-                has_knowledge_tree=user_has_knowledge_tree(),
+                has_knowledge_graph=user_has_knowledge_graph(),
                 has_memory=user_has_memory(),
                 has_notebooks=user_has_notebooks(),
                 # A partner turn mounts the bank even when it is still empty:
@@ -1700,10 +1653,8 @@ class AgenticLoopPipeline:
         return [str(kb).strip() for kb in context.knowledge_bases if str(kb).strip()]
 
     def _rag_kbs(self, context: UnifiedContext) -> list[str]:
-        """Attached KBs served by rag; PageIndex KBs use their SDK tools."""
-        from pathmind.services.rag.pipelines.pageindex import is_pageindex_kb
-
-        return [kb for kb in self._selected_kbs(context) if not is_pageindex_kb(kb)]
+        """Attached KBs served by rag."""
+        return list(self._selected_kbs(context))
 
     def _capability_owned_kbs(self, context: UnifiedContext) -> set[str]:
         """Selected KBs consumed by an active capability's own tools (not rag).
@@ -1760,7 +1711,7 @@ class AgenticLoopPipeline:
                     "must be one of these names."
                 )
             )
-        return rag_note + self._kb_manifest_system_note() + self._pageindex_system_note()
+        return rag_note + self._kb_manifest_system_note()
 
     async def _prepare_kb_manifests(self, context: UnifiedContext) -> None:
         """Read the attached KBs' document inventories once per turn.
@@ -1773,8 +1724,7 @@ class AgenticLoopPipeline:
         when its contents change and makes counts answerable without a tool
         round-trip.
 
-        PageIndex KBs are excluded: ``_pageindex_system_note`` already lists
-        their documents for the SDK tools. Fails soft — a KB
+        Fails soft — a KB
         whose files cannot be read costs the manifest, not the turn.
         """
         self._kb_manifests = []
@@ -1807,53 +1757,6 @@ class AgenticLoopPipeline:
             return ""
         note = render_manifest_note(self._kb_manifests, language=self.language)
         return f"\n{note}" if note else ""
-
-    def _pageindex_system_note(self) -> str:
-        """Retrieval instructions for attached PageIndex KBs.
-
-        Populated by ``_prepare_deferred_tools`` once per turn and included in
-        the independently updated tool-context snapshot.
-        """
-        providers = getattr(self, "_pageindex_providers", None) or set()
-        if not providers:
-            return ""
-
-        blocks: list[str] = []
-        if "pageindex" in providers:
-            instructions = str(getattr(self, "_pageindex_cloud_instructions", "") or "").strip()
-            if self.language == "zh":
-                blocks.append(
-                    "\n以下知识库使用 PageIndex Cloud。使用已加载的 pageindex_cloud_* "
-                    "SDK 工具先查看文档结构、再读取相关页面；不要使用 rag 读取这些 "
-                    "PageIndex 知识库。\n\nPageIndex SDK 阅读说明：\n"
-                    f"{instructions}"
-                )
-            else:
-                blocks.append(
-                    "\nThe following knowledge bases use PageIndex Cloud. Read them with "
-                    "the preloaded pageindex_cloud_* SDK tools; inspect structure, then "
-                    "read relevant pages. Do not use rag to read these PageIndex knowledge "
-                    "bases.\n\nPageIndex SDK reading instructions:\n"
-                    f"{instructions}"
-                )
-        if "pageindex-oss" in providers:
-            instructions = str(getattr(self, "_pageindex_oss_instructions", "") or "").strip()
-            if self.language == "zh":
-                blocks.append(
-                    "\n以下知识库使用 PageIndex OSS。使用已加载的 pageindex_oss_* 工具，"
-                    "在当前推理循环中先查看文档结构、再读取相关页面；不要使用 rag 读取这些 "
-                    "PageIndex 知识库。\n\nPageIndex SDK 阅读说明：\n"
-                    f"{instructions}"
-                )
-            else:
-                blocks.append(
-                    "\nThe following knowledge bases use PageIndex OSS. Use the preloaded "
-                    "pageindex_oss_* tools inside this reasoning loop; inspect structure, "
-                    "then read relevant pages. Do not use rag to read these PageIndex knowledge "
-                    "bases.\n\nPageIndex SDK reading instructions:\n"
-                    f"{instructions}"
-                )
-        return "".join(blocks)
 
     def _workspace_system_note(self, context: UnifiedContext) -> str:
         runtime = getattr(context, "runtime", None)

@@ -58,7 +58,6 @@ BUILTIN_LOOP_CAPABILITY_SPECS: tuple[LoopCapabilitySpec, ...] = (
         "marginnote4",
         "pathmind.capabilities.marginnote4.capability:MarginNoteCapability",
     ),
-    LoopCapabilitySpec("ima", "pathmind.capabilities.ima.capability:ImaCapability"),
     LoopCapabilitySpec(
         "immersive_reading",
         "pathmind.capabilities.reading.capability:ReadingCapability",

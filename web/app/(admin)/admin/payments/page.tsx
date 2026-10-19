@@ -12,7 +12,6 @@ import {
   X,
   XCircle,
 } from "lucide-react";
-import AdminTabs from "@/components/admin/AdminTabs";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { fetchAuthStatus } from "@/lib/auth";
 import {
@@ -141,9 +140,8 @@ export default function AdminPaymentsPage() {
         : t("Mark as refunded?");
 
   return (
-    <div className="h-screen overflow-y-auto bg-[var(--background)] px-4 py-8 text-[var(--foreground)] sm:px-6 lg:px-8">
+    <div className="h-full overflow-y-auto bg-[var(--background)] px-4 py-8 text-[var(--foreground)] sm:px-6 lg:px-8">
       <div className="mx-auto max-w-6xl">
-        <AdminTabs pendingPayments={stats?.pending_payments} />
 
         <div className="mb-6 flex flex-col justify-between gap-3 sm:flex-row sm:items-end">
           <div>

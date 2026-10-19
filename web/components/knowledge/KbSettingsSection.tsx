@@ -29,7 +29,7 @@ export default function KbSettingsSection({
   const isMarginNote = isMarginNoteKb(kb);
   const provider = isMarginNote
     ? t("MarginNote 4")
-    : kb.statistics?.rag_provider || "llamaindex";
+    : kb.statistics?.rag_provider || "lightrag";
   const pageIndexProvider =
     isMarginNote || !providerUsesEmbeddingMetadata(provider);
   const embeddingLabel = meta.embedding_model

@@ -78,21 +78,9 @@ _NON_DOCUMENT_KB_TYPES: dict[str, str] = {
 RemoteInventoryReader = Callable[[Mapping[str, Any]], "tuple[list[str], bool] | None"]
 
 
-def _ima_inventory(entry: Mapping[str, Any]) -> tuple[list[str], bool] | None:
-    """List a connected Tencent IMA library through its own browse API."""
-    from pathmind.services.rag.pipelines.ima.inventory import read_inventory
-
-    inventory = read_inventory(entry)
-    if inventory is None:
-        return None
-    return list(inventory.documents), inventory.complete
-
-
 # Connected KB types whose inventory is readable over their API. Imported lazily
 # inside each reader so this module stays free of service-layer imports.
-_REMOTE_INVENTORY_READERS: dict[str, RemoteInventoryReader] = {
-    IMA_KB_TYPE: _ima_inventory,
-}
+_REMOTE_INVENTORY_READERS: dict[str, RemoteInventoryReader] = {}
 
 
 @dataclass(frozen=True)

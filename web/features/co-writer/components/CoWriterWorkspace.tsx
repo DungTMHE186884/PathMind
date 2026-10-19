@@ -25,6 +25,7 @@ import {
   Eraser,
   FileDown,
   FileText,
+  GitBranch,
   Heading1,
   Heading2,
   Heading3,
@@ -51,6 +52,7 @@ import {
   Workflow,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
+import { useAuthStatus } from "@/hooks/useAuthStatus";
 import { apiFetch, apiUrl } from "@/lib/api";
 import { listKnowledgeBases } from "@/features/knowledge/api/catalog";
 import {
@@ -88,6 +90,10 @@ const SaveToNotebookModal = dynamic(
   { ssr: false },
 );
 
+const UpdateTreeModal = dynamic(
+  () => import("@/components/knowledge-tree/UpdateTreeModal"),
+  { ssr: false },
+);
 const PublishSkillModal = dynamic(
   () => import("@/components/community/PublishSkillModal"),
   { ssr: false },
@@ -193,6 +199,9 @@ export default function CoWriterWorkspace({ docId }: CoWriterWorkspaceProps) {
   const [isSavingDoc, setIsSavingDoc] = useState(false);
   const [isExportingDocx, setIsExportingDocx] = useState(false);
   const [shareSkillOpen, setShareSkillOpen] = useState(false);
+  // R&D writes the main knowledge graph here; ``?tree=<domain>`` pre-selects it.
+  const canUpdateTree = useAuthStatus().isRnd;
+  const [treeTarget, setTreeTarget] = useState<string | null | undefined>(undefined);
   const [lastSavedAt, setLastSavedAt] = useState<number | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const previewScrollRef = useRef<HTMLDivElement>(null);
@@ -1771,6 +1780,16 @@ export default function CoWriterWorkspace({ docId }: CoWriterWorkspaceProps) {
               <FileDown size={17} strokeWidth={1.7} />
             )}
           </ToolbarIconBtn>
+          {canUpdateTree && (
+            <ToolbarIconBtn
+              title={t("Update main graph")}
+              onClick={() =>
+                setTreeTarget(new URLSearchParams(window.location.search).get("tree"))
+              }
+            >
+              <GitBranch size={17} strokeWidth={1.7} />
+            </ToolbarIconBtn>
+          )}
           <ToolbarIconBtn
             title={t("Share as a community skill")}
             onClick={() => setShareSkillOpen(true)}
@@ -2436,6 +2455,15 @@ export default function CoWriterWorkspace({ docId }: CoWriterWorkspaceProps) {
           setError("");
         }}
       />
+
+      {treeTarget !== undefined && (
+        <UpdateTreeModal
+          title={docTitle}
+          markdown={markdown}
+          initialDomainId={treeTarget}
+          onClose={() => setTreeTarget(undefined)}
+        />
+      )}
 
       {shareSkillOpen && (
         <PublishSkillModal

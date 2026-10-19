@@ -78,10 +78,7 @@ export default function KnowledgePage() {
     deleteKb,
     connectObsidian,
     connectLinkedFolder,
-    connectLightRagServer,
-    connectWeKnora,
     connectMarginNote4,
-    connectIma,
   } = useKnowledgeBases();
 
   // Connected subagents are stored as ``type: subagent`` KBs so the chat
@@ -207,7 +204,6 @@ export default function KnowledgePage() {
       name: string;
       provider: string;
       files: File[];
-      pageindexMode?: "flash" | "standard";
       searchMode?: string;
     }) => {
       try {
@@ -414,10 +410,7 @@ export default function KnowledgePage() {
           onCreate={handleCreate}
           onConnectLinkedFolder={connectLinkedFolder}
           onConnectObsidian={connectObsidian}
-          onConnectLightRagServer={connectLightRagServer}
-          onConnectWeKnora={connectWeKnora}
           onConnectMarginNote4={connectMarginNote4}
-          onConnectIma={connectIma}
           initialMode={createPreset?.mode}
           initialSource={createPreset?.source}
           allowServerSources={canManageEngines}

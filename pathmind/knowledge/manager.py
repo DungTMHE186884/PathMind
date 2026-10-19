@@ -19,12 +19,9 @@ from typing import Any
 from urllib.parse import urlparse
 
 from pathmind.knowledge.kb_types import (
-    IMA_KB_TYPE,
-    LIGHTRAG_SERVER_KB_TYPE,
     LINKED_KB_TYPE,
     MARGINNOTE4_KB_TYPE,
     OBSIDIAN_KB_TYPE,
-    WEKNORA_KB_TYPE,
     external_root_of,
     is_connected_kb,
 )
@@ -33,13 +30,8 @@ from pathmind.knowledge.naming import validate_knowledge_base_name
 from pathmind.services.file_io import atomic_write_json
 from pathmind.services.rag.factory import (
     DEFAULT_PROVIDER,
-    IMA_PROVIDER,
     KNOWN_PROVIDERS,
     LIGHTRAG_PROVIDER,
-    LIGHTRAG_SERVER_PROVIDER,
-    PAGEINDEX_OSS_PROVIDER,
-    PAGEINDEX_PROVIDER,
-    WEKNORA_PROVIDER,
     has_ready_provider_index,
     normalize_provider_name,
     provider_uses_embedding_versions,
@@ -380,7 +372,7 @@ class KnowledgeBaseManager:
             payload = {
                 "kb_name": name,
                 "description": kb_entry.get("description", f"Knowledge base: {name}"),
-                "rag_provider": kb_entry.get("rag_provider", "llamaindex"),
+                "rag_provider": kb_entry.get("rag_provider", "lightrag"),
                 "needs_reindex": bool(kb_entry.get("needs_reindex", False)),
                 "status": kb_entry.get("status", "unknown"),
                 "kb_created_at": kb_entry.get("created_at", ""),
@@ -480,16 +472,7 @@ class KnowledgeBaseManager:
 
         if status == "ready":
             provider = normalize_provider_name(kb_config.get("rag_provider"))
-            pageindex_provider = provider in {PAGEINDEX_PROVIDER, PAGEINDEX_OSS_PROVIDER}
-            if pageindex_provider:
-                for key in (
-                    "embedding_model",
-                    "embedding_dim",
-                    "embedding_signature",
-                    "embedding_mismatch",
-                ):
-                    kb_config.pop(key, None)
-            elif not kb_config.get("embedding_selection"):
+            if not kb_config.get("embedding_selection"):
                 fp = _get_embedding_fingerprint()
                 if fp:
                     kb_config["embedding_model"], kb_config["embedding_dim"] = fp
@@ -498,7 +481,7 @@ class KnowledgeBaseManager:
             try:
                 from pathmind.services.rag.embedding_binding import entry_signature
 
-                sig = None if pageindex_provider else entry_signature(kb_config)
+                sig = entry_signature(kb_config)
                 if sig is not None and not kb_config.get("embedding_selection"):
                     kb_config["embedding_signature"] = sig.hash()
                 kb_dir = self.base_dir / name
@@ -821,56 +804,6 @@ class KnowledgeBaseManager:
         self._save_config()
         return entry
 
-
-    def register_lightrag_server_kb(
-        self,
-        name: str,
-        server_url: str,
-        *,
-        api_key: str = "",
-        search_mode: str = "",
-        description: str = "",
-    ) -> dict:
-        """Register a pointer to an external LightRAG server as a connected KB.
-
-        Like the other connected types this creates no folder under ``base_dir``
-        and runs no index pipeline: it records a ``type: lightrag_server`` entry
-        whose ``server_url`` (+ optional ``api_key``) the ``lightrag-server``
-        provider queries over HTTP. The server owns indexing entirely. Callers
-        should validate reachability with the probe helper first; this only
-        guards basic invariants. Raises ``ValueError`` on a missing name/URL or a
-        name clash.
-        """
-        name = validate_knowledge_base_name(name)
-        server_url = (server_url or "").strip().rstrip("/")
-        if not server_url:
-            raise ValueError("LightRAG server URL is required.")
-
-        self.config = self._load_config()
-        knowledge_bases = self.config.setdefault("knowledge_bases", {})
-        if name in knowledge_bases:
-            raise ValueError(f"A knowledge base named '{name}' already exists.")
-
-        now = datetime.now().isoformat()
-        entry: dict[str, Any] = {
-            "path": name,
-            "type": LIGHTRAG_SERVER_KB_TYPE,
-            "rag_provider": LIGHTRAG_SERVER_PROVIDER,
-            "server_url": server_url,
-            "api_key": (api_key or "").strip(),
-            "description": description or f"LightRAG server: {name}",
-            "status": "ready",
-            "needs_reindex": False,
-            "created_at": now,
-            "updated_at": now,
-        }
-        search_mode = (search_mode or "").strip().lower()
-        if search_mode:
-            entry["search_mode"] = search_mode
-        knowledge_bases[name] = entry
-        self._save_config()
-        return entry
-
     def register_marginnote4_kb(
         self,
         name: str,
@@ -942,105 +875,6 @@ class KnowledgeBaseManager:
             if _store(other_name, other) == wanted:
                 return other_name
         return None
-
-    def register_ima_kb(
-        self,
-        name: str,
-        client_id: str,
-        api_key: str,
-        knowledge_base_id: str,
-        *,
-        description: str = "",
-    ) -> dict:
-        """Register a pointer to a Tencent IMA knowledge base as a connected KB.
-
-        Like the other connected types this creates no folder under ``base_dir``
-        and runs no index pipeline: it records a ``type: ima`` entry whose
-        library id the ``ima`` provider queries over IMA's OpenAPI. IMA owns
-        indexing entirely.
-
-        Credentials are optional here: leave them empty and the KB retrieves
-        with the account-level pair from the engine settings, so rotating that
-        key updates every such KB at once. Passing a pair pins this KB to it —
-        the way to reach a second IMA account. Callers should validate the
-        binding with the probe helper first; this only guards basic invariants.
-        Raises ``ValueError`` on a missing field, a half-filled credential pair,
-        or a name clash.
-        """
-        name = validate_knowledge_base_name(name)
-        client_id = (client_id or "").strip()
-        api_key = (api_key or "").strip()
-        knowledge_base_id = (knowledge_base_id or "").strip()
-        if bool(client_id) != bool(api_key):
-            raise ValueError("IMA Client ID and API Key must be given together.")
-        if not knowledge_base_id:
-            raise ValueError("IMA knowledge base ID is required.")
-
-        self.config = self._load_config()
-        knowledge_bases = self.config.setdefault("knowledge_bases", {})
-        if name in knowledge_bases:
-            raise ValueError(f"A knowledge base named '{name}' already exists.")
-
-        now = datetime.now().isoformat()
-        entry: dict[str, Any] = {
-            "path": name,
-            "type": IMA_KB_TYPE,
-            "rag_provider": IMA_PROVIDER,
-            # Written only when this KB overrides the account credentials;
-            # absent means "resolve them from the engine settings".
-            **({"client_id": client_id, "api_key": api_key} if client_id else {}),
-            "knowledge_base_id": knowledge_base_id,
-            "description": description or f"Tencent IMA: {name}",
-            "status": "ready",
-            "needs_reindex": False,
-            "created_at": now,
-            "updated_at": now,
-        }
-        knowledge_bases[name] = entry
-        self._save_config()
-        return entry
-
-    def register_weknora_kb(
-        self,
-        name: str,
-        server_url: str,
-        api_key: str,
-        knowledge_base_id: str,
-        *,
-        description: str = "",
-    ) -> dict:
-        """Register a self-hosted WeKnora knowledge base as a pointer KB."""
-        name = validate_knowledge_base_name(name)
-        server_url = (server_url or "").strip().rstrip("/")
-        api_key = (api_key or "").strip()
-        knowledge_base_id = (knowledge_base_id or "").strip()
-        if not server_url or not knowledge_base_id:
-            raise ValueError("WeKnora server URL and knowledge base ID are required.")
-        if not api_key:
-            raise ValueError("A WeKnora API key is required.")
-
-        self.config = self._load_config()
-        knowledge_bases = self.config.setdefault("knowledge_bases", {})
-        if name in knowledge_bases:
-            raise ValueError(f"A knowledge base named '{name}' already exists.")
-
-        now = datetime.now().isoformat()
-        entry: dict[str, Any] = {
-            "path": name,
-            "type": WEKNORA_KB_TYPE,
-            "rag_provider": WEKNORA_PROVIDER,
-            "server_url": server_url,
-            "api_key": api_key,
-            "knowledge_base_id": knowledge_base_id,
-            "description": description or f"WeKnora knowledge base: {name}",
-            "status": "ready",
-            "needs_reindex": False,
-            "created_at": now,
-            "updated_at": now,
-        }
-        knowledge_bases[name] = entry
-        self._save_config()
-        return entry
 
     def get_knowledge_base_path(self, name: str | None = None) -> Path:
         """Get path to a knowledge base.
@@ -1432,10 +1266,9 @@ class KnowledgeBaseManager:
         kb_probe_dir = kb_dir if dir_exists else None
         rag_initialized = has_ready_provider
 
-        pageindex_provider = rag_provider in {PAGEINDEX_PROVIDER, PAGEINDEX_OSS_PROVIDER}
         from pathmind.services.rag.embedding_binding import entry_signature
 
-        active_signature = None if pageindex_provider else entry_signature(kb_config)
+        active_signature = entry_signature(kb_config)
         if provider_uses_embedding_versions(rag_provider):
             matched_entry = (
                 find_matching_version(kb_probe_dir, active_signature)
@@ -1795,7 +1628,7 @@ class KnowledgeBaseManager:
 
         Args:
             folder_path: Path to folder
-            provider: RAG provider to determine supported extensions (default: llamaindex)
+            provider: RAG provider to determine supported extensions (default: lightrag)
 
         Returns:
             List of file paths (as strings)

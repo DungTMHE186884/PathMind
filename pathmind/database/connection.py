@@ -4,6 +4,7 @@ from collections.abc import Generator
 from contextlib import contextmanager
 import logging
 import os
+import re
 
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import Session, declarative_base, sessionmaker
@@ -21,8 +22,19 @@ if not _DATABASE_URL:
     db_path.parent.mkdir(parents=True, exist_ok=True)
     _DATABASE_URL = f"sqlite:///{db_path}"
 
+# PostgreSQL only: keep PathMind's tables in their own schema (``DATABASE_SCHEMA``),
+# so the database can be shared with other apps without table-name clashes.
+_DATABASE_SCHEMA = os.environ.get("DATABASE_SCHEMA", "").strip()
+if _DATABASE_SCHEMA and not re.fullmatch(r"[a-z_][a-z0-9_]{0,62}", _DATABASE_SCHEMA):
+    raise ValueError("DATABASE_SCHEMA must be a lowercase identifier (letters, digits, _).")
+
 # SQLite requires check_same_thread=False for multi-threaded FastAPI workers
-_connect_args = {"check_same_thread": False} if _DATABASE_URL.startswith("sqlite") else {}
+if _DATABASE_URL.startswith("sqlite"):
+    _connect_args: dict = {"check_same_thread": False}
+elif _DATABASE_SCHEMA and _DATABASE_URL.startswith("postgresql"):
+    _connect_args = {"options": f"-csearch_path={_DATABASE_SCHEMA}"}
+else:
+    _connect_args = {}
 
 engine = create_engine(
     _DATABASE_URL,
@@ -90,6 +102,9 @@ def init_database() -> None:
     from pathmind.database import models  # noqa: F401  (register models on Base)
     from pathmind.database.init_db import seed_initial_data
 
+    if _DATABASE_SCHEMA and engine.dialect.name == "postgresql":
+        with engine.begin() as conn:
+            conn.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{_DATABASE_SCHEMA}"'))
     Base.metadata.create_all(bind=engine)
     try:
         _add_missing_columns()

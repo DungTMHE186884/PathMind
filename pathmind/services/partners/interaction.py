@@ -49,8 +49,9 @@ def actor_for_account(user_id: str) -> CurrentUser | None:
     username, record = found
     if record.get("disabled"):
         return None
-    role: Literal["admin", "user"] = (
-        "admin" if str(record.get("role") or "user") == "admin" else "user"
+    raw_role = str(record.get("role") or "user")
+    role: Literal["admin", "rnd", "educator", "user"] = (
+        raw_role if raw_role in ("admin", "rnd", "educator") else "user"  # type: ignore[assignment]
     )
     return CurrentUser(
         id=user_id,

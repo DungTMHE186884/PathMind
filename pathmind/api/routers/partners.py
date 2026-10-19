@@ -41,10 +41,6 @@ from pathmind.services.partners import (
     slugify_partner_id,
     slugify_soul_id,
 )
-from pathmind.services.partners.channel_onboarding import (
-    ChannelOnboardingError,
-    get_channel_onboarding_manager,
-)
 from pathmind.services.partners.drafts import PartnerDraftStore
 from pathmind.services.partners.manager import (
     LEGACY_GLOBAL_DELIVERY_KEYS,
@@ -315,10 +311,6 @@ class SoulCreateRequest(BaseModel):
 class SoulTemplateUpdateRequest(BaseModel):
     name: str | None = None
     content: str | None = None
-
-
-class ChannelOnboardingStartRequest(BaseModel):
-    channel: Literal["feishu", "wecom"]
 
 
 # ── Validation helpers ─────────────────────────────────────────
@@ -650,35 +642,6 @@ async def list_channel_schemas():
     from pathmind.api.routers._partners_channel_schema import all_channel_schemas
 
     return {"channels": all_channel_schemas()}
-
-
-# ── WeChat QR onboarding ───────────────────────────────────────
-#
-# The personal-WeChat channel authenticates by scanning a QR code, and until now
-# it only ever drew that code on the server's stdout — unreachable on any
-# container deployment (#951). These two endpoints run the same exchange for the
-# browser. The bot token is written into the partner's channel config server-side
-# and is never part of a response.
-
-
-@router.post("/{partner_id}/channels/weixin/qr", dependencies=_MANAGEABLE)
-async def start_weixin_qr(partner_id: str):
-    """Issue a QR code for this partner and return what to render."""
-    from pathmind.services.partners import weixin_onboarding
-
-    try:
-        return await weixin_onboarding.start_login(partner_id)
-    except Exception as exc:
-        logger.warning("weixin QR start failed for %s", partner_id, exc_info=True)
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
-
-
-@router.get("/{partner_id}/channels/weixin/qr/{session_id}", dependencies=_MANAGEABLE)
-async def poll_weixin_qr(partner_id: str, session_id: str):
-    """Advance the scan and report its state (never the token)."""
-    from pathmind.services.partners import weixin_onboarding
-
-    return await weixin_onboarding.poll_login(partner_id, session_id)
 
 
 @router.get("/tool-options")
@@ -1140,85 +1103,11 @@ async def get_partner_channel_status(partner_id: str):
         # remains visible alongside live listeners.
         channels.update(instance.channel_manager.get_status())
 
-    # QR rendering is intentionally server-side: it keeps channel bridges and
-    # the web bundle dependency-free while ensuring their interactive output is
-    # visible on the page rather than only in a terminal.
-    from pathmind.services.partners.channel_onboarding import _qr_data_url
-
-    for state in channels.values():
-        setup = state.get("setup") if isinstance(state, dict) else None
-        payload = setup.get("qr_payload") if isinstance(setup, dict) else ""
-        if payload:
-            setup["qr_data_url"] = _qr_data_url(str(payload))
     return {
         "partner_id": partner_id,
         "running": bool(instance and instance.running),
         "channels": channels,
     }
-
-
-def _onboarding_manager_and_partner(partner_id: str):
-    mgr = get_partner_manager()
-    if not mgr.partner_exists(partner_id):
-        raise HTTPException(status_code=404, detail=t("api.partner_not_found"))
-    return get_channel_onboarding_manager(), mgr
-
-
-@router.post("/{partner_id}/channel-onboarding/start", dependencies=_MANAGEABLE)
-async def start_partner_channel_onboarding(partner_id: str, payload: ChannelOnboardingStartRequest):
-    onboarding, _ = _onboarding_manager_and_partner(partner_id)
-    try:
-        return await onboarding.start(partner_id, payload.channel)
-    except ChannelOnboardingError as exc:
-        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from None
-    except Exception as exc:
-        logger.exception("Failed to start channel onboarding for '%s'", partner_id)
-        raise HTTPException(
-            status_code=502,
-            detail=f"Channel onboarding provider request failed ({type(exc).__name__})",
-        ) from exc
-
-
-@router.get("/{partner_id}/channel-onboarding/{session_id}", dependencies=_MANAGEABLE)
-async def get_partner_channel_onboarding(partner_id: str, session_id: str):
-    onboarding, _ = _onboarding_manager_and_partner(partner_id)
-    try:
-        return await onboarding.status(partner_id, session_id)
-    except ChannelOnboardingError as exc:
-        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from None
-    except Exception as exc:
-        logger.exception("Failed to poll channel onboarding for '%s'", partner_id)
-        raise HTTPException(
-            status_code=502,
-            detail=f"Channel onboarding provider request failed ({type(exc).__name__})",
-        ) from exc
-
-
-@router.delete("/{partner_id}/channel-onboarding/{session_id}", dependencies=_MANAGEABLE)
-async def cancel_partner_channel_onboarding(partner_id: str, session_id: str):
-    onboarding, _ = _onboarding_manager_and_partner(partner_id)
-    try:
-        return await onboarding.cancel(partner_id, session_id)
-    except ChannelOnboardingError as exc:
-        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from None
-
-
-@router.post("/{partner_id}/channel-onboarding/{session_id}/apply", dependencies=_MANAGEABLE)
-async def apply_partner_channel_onboarding(partner_id: str, session_id: str):
-    onboarding, mgr = _onboarding_manager_and_partner(partner_id)
-    try:
-        return await onboarding.apply(partner_id, session_id, mgr)
-    except ChannelOnboardingError as exc:
-        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from None
-    except Exception as exc:
-        logger.exception("Failed to apply channel onboarding for '%s'", partner_id)
-        raise HTTPException(
-            status_code=500,
-            detail=(
-                "Channel config saved but failed to restart listeners "
-                f"({type(exc).__name__}); try stopping and starting the partner."
-            ),
-        ) from exc
 
 
 # ── Soul (the partner's own SOUL.md) ───────────────────────────

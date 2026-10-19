@@ -1,7 +1,3 @@
-"""Pre-configured RAG pipelines.
-
-PathMind currently ships with a single built-in provider (`llamaindex`).
-Additional providers can still be registered dynamically via the factory layer.
-"""
+"""Pre-configured RAG pipelines: ``graphrag`` (main tree) and ``lightrag`` (user documents)."""
 
 __all__: list[str] = []

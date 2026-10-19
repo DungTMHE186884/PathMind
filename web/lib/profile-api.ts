@@ -36,7 +36,7 @@ export async function setOwnLearnerProfile(
 export interface ProfileInfo {
   id: string;
   username: string;
-  role: "admin" | "user";
+  role: "admin" | "rnd" | "educator" | "user";
   created_at: string;
   disabled?: boolean;
   /** Avatar marker: "", "icon:<name>:<color>", or "img:<version>". */

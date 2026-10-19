@@ -124,14 +124,14 @@ export default function SettingsNav({ onNavigate }: { onNavigate?: () => void })
       </div>
       {auth.enabled && auth.authenticated && (
         <div className="shrink-0 space-y-0.5 border-t border-border/60 px-2.5 py-2">
-          {auth.isAdmin && (
+          {(auth.isAdmin || auth.isRnd) && (
             <Link
-              href="/admin/users"
+              href={auth.isAdmin ? "/admin" : "/rnd"}
               onClick={onNavigate}
               className="flex min-h-8 items-center gap-2 rounded-md px-2.5 py-1.5 text-[13px] text-[var(--foreground)] outline-none transition-colors hover:bg-accent/60 focus-visible:ring-2 focus-visible:ring-[var(--ring)]"
             >
               <ShieldCheck size={15} strokeWidth={1.8} className="shrink-0" />
-              <span>{t('Admin')}</span>
+              <span>{auth.isAdmin ? t('Admin console') : t('R&D console')}</span>
             </Link>
           )}
           <button

@@ -95,9 +95,9 @@ export default function KbIndexVersionsSection({
   const [lightRagConfigLoaded, setLightRagConfigLoaded] = useState(false);
   const [lightRagConfigError, setLightRagConfigError] = useState(false);
   const llmCatalog = useLLMOptions();
-  const provider = kb.statistics?.rag_provider || "llamaindex";
+  const provider = kb.statistics?.rag_provider || "lightrag";
   const isLightRag = provider === "lightrag";
-  const needsEmbedding = ["llamaindex", "lightrag", "graphrag"].includes(
+  const needsEmbedding = ["lightrag", "graphrag"].includes(
     provider,
   );
   const embeddingCatalog = useEmbeddingModels(

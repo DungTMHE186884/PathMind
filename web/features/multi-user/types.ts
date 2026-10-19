@@ -50,11 +50,6 @@ export type MultiUserResources = {
       models?: Array<{ model_id: string; name: string; model?: string }>;
     }>;
   };
-  knowledge_bases: Array<{
-    resource_id: string;
-    name: string;
-    source: "admin";
-  }>;
   skills: Array<{ name: string; description?: string; tags?: string[] }>;
   partners: Array<{ partner_id: string; name: string; description?: string }>;
   reading_materials: Array<{
@@ -70,19 +65,4 @@ export type MultiUserResources = {
   }>;
   tools: ToolOption[];
   mcp_tools: McpToolOption[];
-};
-
-export type BookPermissionLevel = "none" | "read" | "edit";
-
-export type BookPermission = {
-  create: boolean;
-  default: "none" | "read";
-  books: Record<string, BookPermissionLevel>;
-};
-
-export type AdminBook = {
-  book_id: string;
-  title: string;
-  status: string;
-  updated_at: number;
 };

@@ -13,13 +13,8 @@ from __future__ import annotations
 from typing import Any
 
 from .factory import (
-    DEFAULT_PROVIDER,
     GRAPHRAG_PROVIDER,
-    IMA_PROVIDER,
     LIGHTRAG_PROVIDER,
-    LIGHTRAG_SERVER_PROVIDER,
-    PAGEINDEX_OSS_PROVIDER,
-    PAGEINDEX_PROVIDER,
     normalize_provider_name,
 )
 
@@ -48,70 +43,6 @@ def _active_embedding() -> tuple[str | None, int]:
         return getattr(cfg, "model", None), int(getattr(cfg, "dim", 0) or 0)
     except Exception:
         return None, 0
-
-
-def _llamaindex_preflight() -> dict:
-    emb_model, emb_dim = _active_embedding()
-    checks = [
-        _check(
-            "embedding",
-            "Active embedding model",
-            bool(emb_model) and emb_dim > 0,
-            f"{emb_model} · {emb_dim}d" if emb_model else "Configure one in the model catalog.",
-        )
-    ]
-    try:
-        from .pipelines.llamaindex.retrievers import _import_bm25_retriever
-
-        bm25_ok = _import_bm25_retriever() is not None
-    except Exception:
-        bm25_ok = False
-    checks.append(
-        _check(
-            "bm25",
-            "BM25 hybrid retrieval",
-            bm25_ok,
-            "Installed." if bm25_ok else "Not installed — hybrid falls back to vector-only.",
-            optional=True,
-        )
-    )
-    return _finalize(checks)
-
-
-def _pageindex_preflight() -> dict:
-    try:
-        from .pipelines.pageindex.config import get_pageindex_config
-
-        cfg = get_pageindex_config(require_key=False)
-        configured = bool(cfg.api_key)
-    except Exception:
-        configured = False
-    return _finalize(
-        [
-            _check(
-                "api_key",
-                "API key configured",
-                configured,
-                "PageIndex Cloud" if configured else "Add a PageIndex API key under Credentials.",
-            )
-        ]
-    )
-
-
-def _pageindex_oss_preflight() -> dict:
-    try:
-        from .pipelines.pageindex.client import resolve_oss_sdk_config
-
-        model, _backend = resolve_oss_sdk_config()
-        llm_ok, detail = bool(model), model
-    except Exception as exc:
-        llm_ok = False
-        detail = str(exc)
-    return _finalize(
-        [
-            _check("chat", "Active LLM for indexing", llm_ok, detail),
-        ]
-    )
 
 
 def _graphrag_preflight() -> dict:
@@ -206,63 +137,14 @@ def _lightrag_preflight() -> dict:
     )
 
 
-def _lightrag_server_preflight() -> dict:
-    try:
-        from pathmind.services.config import load_lightrag_server_settings
-
-        settings = load_lightrag_server_settings()
-        server_url = str(settings.get("server_url") or "").strip()
-    except Exception:
-        server_url = ""
-    return _finalize(
-        [
-            _check(
-                "server_url",
-                "Default server configured",
-                bool(server_url),
-                server_url or "Add a server URL under Connection defaults.",
-            )
-        ]
-    )
-
-
-def _ima_preflight() -> dict:
-    try:
-        from .pipelines.ima.config import get_account_credentials
-
-        credentials = get_account_credentials()
-    except Exception:
-        from .pipelines.ima.config import ImaCredentials
-
-        credentials = ImaCredentials()
-    return _finalize(
-        [
-            _check(
-                "credentials",
-                "IMA Client ID and API key configured",
-                credentials.complete,
-                credentials.client_id
-                if credentials.complete
-                else "Add them under Credentials, or supply a pair per knowledge base "
-                "when connecting one.",
-            )
-        ]
-    )
-
-
 def _finalize(checks: list[dict]) -> dict:
     ok = all(c["ok"] for c in checks if not c["optional"])
     return {"ok": ok, "checks": checks}
 
 
 _PREFLIGHTS = {
-    DEFAULT_PROVIDER: _llamaindex_preflight,
-    PAGEINDEX_PROVIDER: _pageindex_preflight,
-    PAGEINDEX_OSS_PROVIDER: _pageindex_oss_preflight,
     GRAPHRAG_PROVIDER: _graphrag_preflight,
     LIGHTRAG_PROVIDER: _lightrag_preflight,
-    LIGHTRAG_SERVER_PROVIDER: _lightrag_server_preflight,
-    IMA_PROVIDER: _ima_preflight,
 }
 
 

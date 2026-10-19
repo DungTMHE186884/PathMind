@@ -9,17 +9,13 @@ answer without knowing provider-specific filenames.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from functools import lru_cache
 import json
 from pathlib import Path
 from typing import Any
 
 from pathmind.services.rag.factory import (
-    DEFAULT_PROVIDER,
     GRAPHRAG_PROVIDER,
     LIGHTRAG_PROVIDER,
-    PAGEINDEX_OSS_PROVIDER,
-    PAGEINDEX_PROVIDER,
     normalize_provider_name,
     version_matches_provider,
 )
@@ -45,13 +41,9 @@ def inspect_provider_index(
     path = Path(storage_dir) if storage_dir is not None else None
     if path is None:
         return ProviderIndexProbe(resolved, None, False, "No storage path recorded.")
-    if resolved in {PAGEINDEX_PROVIDER, PAGEINDEX_OSS_PROVIDER}:
-        return _inspect_pageindex(path, resolved)
     if resolved == GRAPHRAG_PROVIDER:
         return _inspect_graphrag(path)
-    if resolved == LIGHTRAG_PROVIDER:
-        return _inspect_lightrag(path)
-    return _inspect_llamaindex(path)
+    return _inspect_lightrag(path)
 
 
 def inspect_provider_version(entry: dict[str, Any], provider: str | None) -> ProviderIndexProbe:
@@ -132,89 +124,6 @@ def provider_failure_summary(
     return "; ".join(failures[:limit])
 
 
-def _inspect_llamaindex(storage_dir: Path) -> ProviderIndexProbe:
-    diagnostics: dict[str, Any] = {}
-    if not storage_dir.is_dir():
-        return ProviderIndexProbe(
-            DEFAULT_PROVIDER,
-            str(storage_dir),
-            False,
-            "LlamaIndex storage directory does not exist.",
-        )
-
-    docstore = storage_dir / "docstore.json"
-    index_store = storage_dir / "index_store.json"
-    vector_stores = sorted(path.name for path in storage_dir.glob("*vector_store.json"))
-    diagnostics["vector_stores"] = vector_stores
-
-    if not docstore.exists():
-        return ProviderIndexProbe(
-            DEFAULT_PROVIDER,
-            str(storage_dir),
-            False,
-            "Missing LlamaIndex docstore.json.",
-            diagnostics=diagnostics,
-        )
-    if not index_store.exists():
-        return ProviderIndexProbe(
-            DEFAULT_PROVIDER,
-            str(storage_dir),
-            False,
-            "Missing LlamaIndex index_store.json.",
-            doc_count=_llamaindex_doc_count(docstore),
-            diagnostics=diagnostics,
-        )
-
-    return ProviderIndexProbe(
-        DEFAULT_PROVIDER,
-        str(storage_dir),
-        True,
-        doc_count=_llamaindex_doc_count(docstore),
-        diagnostics=diagnostics,
-    )
-
-
-def _inspect_pageindex(storage_dir: Path, provider: str) -> ProviderIndexProbe:
-    from pathmind.services.rag.pipelines.pageindex import storage
-
-    manifest = storage.read_manifest(storage_dir, provider=provider)
-    ids = storage.doc_ids(manifest)
-    if not ids:
-        return ProviderIndexProbe(
-            provider,
-            str(storage_dir),
-            False,
-            "PageIndex manifest has no document ids.",
-            doc_count=0,
-        )
-    if provider == PAGEINDEX_OSS_PROVIDER:
-        docs_dir = storage.sdk_storage_path(storage_dir) / "docs"
-        missing = [
-            doc_id
-            for doc_id in ids
-            if not all(
-                (docs_dir / doc_id / name).is_file()
-                for name in ("doc.json", "tree.json", "pages.json")
-            )
-        ]
-        if missing:
-            return ProviderIndexProbe(
-                provider,
-                str(storage_dir),
-                False,
-                "PageIndex OSS Local Library is missing document artifacts.",
-                doc_count=len(ids) - len(missing),
-                diagnostics={"missing_doc_ids": missing[:10]},
-            )
-    return ProviderIndexProbe(
-        provider,
-        str(storage_dir),
-        True,
-        doc_count=len(ids),
-        diagnostics={"manifest": str(storage.manifest_path(storage_dir))},
-    )
-
-
 def _inspect_graphrag(storage_dir: Path) -> ProviderIndexProbe:
     from pathmind.services.rag.pipelines.graphrag import storage
 
@@ -254,24 +163,6 @@ def _inspect_lightrag(storage_dir: Path) -> ProviderIndexProbe:
 # it is the dominant cost of a LlamaIndex readiness probe. The count only
 # changes when the file itself changes, so it is cached keyed on size +
 # mtime_ns (same freshness convention as storage._freshness_token).
-_DOCSTORE_COUNT_CACHE_SIZE = 128
-
-
-@lru_cache(maxsize=_DOCSTORE_COUNT_CACHE_SIZE)
-def _llamaindex_doc_count_cached(path: str, size: int, mtime_ns: int) -> int | None:
-    payload = _read_json(Path(path))
-    if not isinstance(payload, dict):
-        return None
-    data = payload.get("docstore/data")
-    return len(data) if isinstance(data, dict) else None
-
-
-def _llamaindex_doc_count(docstore_path: Path) -> int | None:
-    try:
-        stat = docstore_path.stat()
-    except OSError:
-        return None
-    return _llamaindex_doc_count_cached(str(docstore_path), stat.st_size, stat.st_mtime_ns)
 
 
 def _lightrag_doc_count(storage_dir: Path) -> int | None:

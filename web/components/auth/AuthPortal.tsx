@@ -7,6 +7,7 @@ import {
   login,
   register,
   fetchAuthStatus,
+  refreshAuthStatus,
   verifyEmailCode,
   resendEmailCode,
   type AuthFailure,
@@ -119,7 +120,7 @@ export function AuthPortal({ initialTab = "login" }: AuthPortalProps) {
 
   const tabFromQuery = searchParams.get("tab");
   const [view, setView] = useState<View>(
-    tabFromQuery === "register" ? "register" : initialTab,
+    tabFromQuery === "register" || searchParams.get("invite") ? "register" : initialTab,
   );
 
   // Login
@@ -131,11 +132,13 @@ export function AuthPortal({ initialTab = "login" }: AuthPortalProps) {
 
   // Register
   const [fullName, setFullName] = useState("");
-  const [email, setEmail] = useState("");
+  const inviteToken = searchParams.get("invite") ?? "";
+  const [email, setEmail] = useState(() => inviteEmail(inviteToken));
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [acceptTerms, setAcceptTerms] = useState(false);
+  const [asEducator, setAsEducator] = useState(false);
   // Terms open in a dialog: a new tab is blocked in embedded browsers, and
   // leaving the page would lose what the user already typed.
   const [termsOpen, setTermsOpen] = useState(false);
@@ -165,9 +168,10 @@ export function AuthPortal({ initialTab = "login" }: AuthPortalProps) {
 
   useEffect(() => {
     fetchAuthStatus().then((status) => {
-      if (status?.authenticated) window.location.href = targetDestination;
+      if (status?.authenticated)
+        window.location.href = staffLanding(status.role, rawNext, targetDestination);
     });
-  }, [targetDestination]);
+  }, [targetDestination, rawNext]);
 
   useEffect(() => {
     if (resendIn <= 0) return;
@@ -196,7 +200,8 @@ export function AuthPortal({ initialTab = "login" }: AuthPortalProps) {
     setLoginLoading(true);
     const result = await login(loginUsername.trim(), loginPassword);
     if (result.ok) {
-      window.location.href = targetDestination;
+      const st = await refreshAuthStatus().catch(() => null);
+      window.location.href = staffLanding(st?.role, rawNext, targetDestination);
       return;
     }
     setLoginLoading(false);
@@ -245,6 +250,8 @@ export function AuthPortal({ initialTab = "login" }: AuthPortalProps) {
       password,
       confirm_password: confirmPassword,
       accept_terms: acceptTerms,
+      role: asEducator ? "educator" : "user",
+      invite: inviteToken || undefined,
     });
     if (!result.ok) {
       setRegLoading(false);
@@ -423,6 +430,10 @@ export function AuthPortal({ initialTab = "login" }: AuthPortalProps) {
 
               {loginError && <ErrorBox message={loginError} />}
 
+              <a href="/forgot-password" className="block text-right text-xs text-[var(--muted-foreground)] underline">
+                {t("Forgot password?")}
+              </a>
+
               <button type="submit" disabled={loginLoading} className={primaryButton}>
                 {loginLoading ? (
                   <>
@@ -562,6 +573,20 @@ export function AuthPortal({ initialTab = "login" }: AuthPortalProps) {
                   className={inputClass(Boolean(fieldErrors.confirm_password))}
                 />
                 <FieldError message={fieldErrors.confirm_password} />
+              </div>
+
+              <div>
+                <label className="flex items-start gap-2 text-xs text-[var(--muted-foreground)] cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={asEducator}
+                    onChange={(e) => setAsEducator(e.target.checked)}
+                    className="mt-0.5 h-3.5 w-3.5 accent-[var(--primary)]"
+                  />
+                  <span>
+                    {t("I am an Educator (I want to build and share my own knowledge)")}
+                  </span>
+                </label>
               </div>
 
               <div>
@@ -728,4 +753,22 @@ export function AuthPortal({ initialTab = "login" }: AuthPortalProps) {
       </Modal>
     </div>
   );
+}
+
+/** Administrators land in /admin and R&D in /rnd unless a deep link was given. */
+function staffLanding(role: string | undefined, next: string | null, fallback: string) {
+  if (!next && role === "admin") return "/admin";
+  if (!next && role === "rnd") return "/rnd";
+  return fallback;
+}
+
+/** The invitation token carries the invited address (not secret); prefill it. */
+function inviteEmail(token: string): string {
+  try {
+    const body = token.split(".")[0] ?? "";
+    const json = atob(body.replace(/-/g, "+").replace(/_/g, "/"));
+    return String((JSON.parse(json) as { e?: string }).e ?? "");
+  } catch {
+    return "";
+  }
 }

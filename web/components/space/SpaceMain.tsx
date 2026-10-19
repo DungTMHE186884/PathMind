@@ -7,7 +7,7 @@ import { ArrowLeft } from "lucide-react";
 import AdminOnlyGuard from "@/components/common/AdminOnlyGuard";
 
 // Personalization pages: administrators only (see AdminOnlyGuard).
-const ADMIN_ONLY_PATHS = ["/space/personas", "/space/mcp", "/space/cli-apps"];
+const ADMIN_ONLY_PATHS = ["/space/personas"];
 import { useTranslation } from "react-i18next";
 
 // Hub-and-spoke: the dashboard at `/space` is the only navigator. Once inside a
@@ -40,7 +40,7 @@ export default function SpaceMain({
   );
   const body = (
     <>
-      {['/space/skills', '/space/mcp'].includes(pathname) && (
+      {['/space/skills'].includes(pathname) && (
         <div className="mb-5 rounded-lg border border-[var(--border)] p-3 text-sm text-[var(--muted-foreground)]">
           <ResourceLibraryNote />
         </div>

@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useTranslation } from "react-i18next";
-import AdminTabs from "@/components/admin/AdminTabs";
 import { fetchAuthStatus } from "@/lib/auth";
 import { getInsightStats, type InsightStats } from "@/lib/memory-sharing-api";
 
@@ -37,9 +36,8 @@ export default function InsightsPage() {
   }, [ready, t]);
 
   return (
-    <div className="h-screen overflow-y-auto bg-[var(--background)] px-4 py-8 text-[var(--foreground)] sm:px-6 lg:px-8">
+    <div className="h-full overflow-y-auto bg-[var(--background)] px-4 py-8 text-[var(--foreground)] sm:px-6 lg:px-8">
       <div className="mx-auto max-w-4xl">
-        <AdminTabs />
         <h1 className="font-serif text-xl font-semibold">
           {t("Learner insights")}
         </h1>

@@ -195,12 +195,6 @@ class SourceExplorer(BaseAgent):
 
         intent = (inputs.user_intent or proposal.description or "").strip()
         kb_list = list(inputs.knowledge_bases or [])
-        from pathmind.services.rag.pipelines.pageindex import (
-            validate_pageindex_oss_selection,
-        )
-
-        validate_pageindex_oss_selection(kb_list)
-
         queries = await self._design_queries(proposal=proposal, inputs=inputs)
         if not queries:
             queries = list(_DEFAULT_QUERIES)
@@ -390,40 +384,13 @@ class SourceExplorer(BaseAgent):
                 ", ".join(connected),
             )
 
-        pageindex_kbs: list[str] = []
-        traditional_kbs: list[str] = []
-        for kb in kb_list:
-            try:
-                from pathmind.multi_user.knowledge_access import resolve_kb
-                from pathmind.services.rag.factory import (
-                    PAGEINDEX_OSS_PROVIDER,
-                    PAGEINDEX_PROVIDER,
-                )
-                from pathmind.services.rag.provider_binding import resolve_bound_provider
-
-                resource = resolve_kb(kb, require_write=False)
-                provider = resolve_bound_provider(str(resource.base_dir), resource.name)
-            except Exception:
-                provider = ""
-            (
-                pageindex_kbs
-                if provider in {PAGEINDEX_PROVIDER, PAGEINDEX_OSS_PROVIDER}
-                else traditional_kbs
-            ).append(kb)
-
-        pageindex_chunks = await self._retrieve_pageindex_chunks(
-            queries,
-            pageindex_kbs,
-            stream=stream,
-        )
-        if not traditional_kbs:
-            return pageindex_chunks
+        traditional_kbs: list[str] = list(kb_list)
 
         try:
             from pathmind.tools.rag_tool import rag_search
         except Exception as exc:  # pragma: no cover - import guard
             logger.warning(f"rag_tool unavailable: {exc}")
-            return pageindex_chunks
+            return []
 
         async def _one_query(kb: str, query: str) -> list[SourceChunk]:
             try:
@@ -514,60 +481,7 @@ class SourceExplorer(BaseAgent):
         chunks: list[SourceChunk] = []
         for batch in gathered:
             chunks.extend(batch)
-        return [*pageindex_chunks, *chunks]
-
-    async def _retrieve_pageindex_chunks(
-        self,
-        queries: list[str],
-        kb_list: list[str],
-        *,
-        stream: StreamBus | None,
-    ) -> list[SourceChunk]:
-        if not kb_list:
-            return []
-        from pathmind.services.rag.pipelines.pageindex.reasoning import (
-            read_pageindex_with_agent,
-        )
-
-        query_block = "\n".join(f"- {query}" for query in queries)
-
-        async def read_one(kb: str) -> SourceChunk | None:
-            try:
-                result = await read_pageindex_with_agent(
-                    kb_name=kb,
-                    system_prompt=(
-                        "You are the SourceExplorer for a book workflow. Build a dense evidence "
-                        "brief that later planning and block-generation stages can reuse. Cover "
-                        "the supplied research questions, preserve concrete facts and page "
-                        "references, and do not draft the book itself."
-                    ),
-                    user_prompt=f"Collect source evidence for these questions:\n{query_block}",
-                    context=UnifiedContext(
-                        user_message=query_block,
-                        knowledge_bases=[kb],
-                    ),
-                    stream=stream,
-                    source="book_source_explorer",
-                    stage="exploration",
-                )
-            except Exception as exc:
-                logger.warning("PageIndex SourceExplorer failed for %s: %s", kb, exc)
-                return None
-            if not result.text:
-                return None
-            return SourceChunk(
-                chunk_id=f"pageindex::{kb}",
-                kb_name=kb,
-                source="kb",
-                ref=f"pageindex::{kb}",
-                text=_clip(result.text, 8000),
-                score=1.0,
-                query="; ".join(queries),
-                metadata={"provider": result.tool_context.provider, "sources": result.sources},
-            )
-
-        rows = await asyncio.gather(*(read_one(kb) for kb in kb_list))
-        return [row for row in rows if row is not None]
+        return chunks
 
     # ------------------------------------------------------------------ #
     # Step 3 — non-KB sources (notebooks, chat, questions)

@@ -15,7 +15,7 @@ if TYPE_CHECKING:
 
 from .embedding_signature import signature_from_config
 
-EMBEDDING_PROVIDERS = {"llamaindex", "graphrag", "lightrag"}
+EMBEDDING_PROVIDERS = {"graphrag", "lightrag"}
 
 
 def get_embedding_config(selection=None, *, catalog=None):
@@ -30,7 +30,7 @@ def uses_bound_embedding(entry: dict) -> bool:
 
     return (
         not is_connected_kb(entry)
-        and entry.get("rag_provider", "llamaindex") in EMBEDDING_PROVIDERS
+        and entry.get("rag_provider", "lightrag") in EMBEDDING_PROVIDERS
     )
 
 

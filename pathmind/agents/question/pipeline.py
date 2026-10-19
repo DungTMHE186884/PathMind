@@ -491,7 +491,6 @@ class QuestionPipeline:
         client = build_openai_client(self.client_config)
 
         try:
-            await self._prepare_pageindex_tools()
             return await self._run_inner(
                 context=context,
                 user_message=user_message,
@@ -1546,25 +1545,10 @@ class QuestionPipeline:
     # ------------------------------------------------------------------
     # Tool integration (mirrors chat's policy)
     # ------------------------------------------------------------------
-    async def _prepare_pageindex_tools(self) -> None:
-        from pathmind.services.rag.pipelines.pageindex.tools import (
-            build_pageindex_tool_context,
-        )
-
-        self._pageindex_tool_context = await build_pageindex_tool_context(
-            self.kb_name,
-            base_registry=self.registry,
-        )
-        if self._pageindex_tool_context is not None:
-            self.registry = self._pageindex_tool_context.registry
-
-    def _pageindex_tool_names(self) -> list[str]:
-        tool_context = getattr(self, "_pageindex_tool_context", None)
-        return [tool.name for tool in tool_context.tools] if tool_context is not None else []
 
     def _mount_flags(self, context: UnifiedContext) -> ToolMountFlags:
         return ToolMountFlags(
-            has_kb=bool(self.kb_name and not getattr(self, "_pageindex_tool_context", None)),
+            has_kb=bool(self.kb_name),
             has_sources=bool(self._source_index(context)),
             has_memory=user_has_memory(),
             has_notebooks=user_has_notebooks(),
@@ -1579,7 +1563,7 @@ class QuestionPipeline:
             optional_whitelist=self._optional_tools,
             mount_flags=self._mount_flags(context),
         )
-        resolved = list(dict.fromkeys([*names, *self._pageindex_tool_names()]))
+        resolved = list(dict.fromkeys(names))
         return drop_unconfigured_generation_tools(resolved)
 
     def _use_native_tools(self, context: UnifiedContext) -> bool:
@@ -1694,28 +1678,6 @@ class QuestionPipeline:
     def _kb_system_note(self) -> str:
         if not self.kb_name:
             return ""
-        tool_context = getattr(self, "_pageindex_tool_context", None)
-        if tool_context is not None:
-            docs = (
-                "; ".join(
-                    f"{name} (doc_id: {doc_id})"
-                    for name, doc_id in sorted(tool_context.documents.items())
-                )
-                or "(no indexed documents)"
-            )
-            tools = ", ".join(self._pageindex_tool_names())
-            instructions = tool_context.instructions.strip()
-            if self.language == "zh":
-                return (
-                    f"已挂载 PageIndex 知识库 {self.kb_name!r}。使用这些工具在当前推理循环中"
-                    f"阅读文档，不要调用 rag：{tools}。文档：{docs}。"
-                    + (f"\nPageIndex SDK 阅读说明：\n{instructions}" if instructions else "")
-                )
-            return (
-                f"Attached PageIndex knowledge base: {self.kb_name!r}. Read it inside this "
-                f"reasoning loop with these tools; do not call rag: {tools}. Documents: {docs}."
-                + (f"\nPageIndex SDK reading instructions:\n{instructions}" if instructions else "")
-            )
         if self.language == "zh":
             return f"用户已挂载知识库：{self.kb_name}。调用 rag 时，kb_name 必须填这个名称。"
         return (
@@ -2056,11 +2018,6 @@ class _BaseLoopHost:
             tool_error_message_factory=tool_error_message_factory(self._pipeline._t),
             trace_id_prefix=self._trace_id_prefix,
         )
-        pageindex_sources = [
-            source for source in outcome.sources if source.get("type") == "pageindex"
-        ]
-        if pageindex_sources:
-            await self._stream.sources(pageindex_sources, source=SOURCE, stage=self._stage)
         return outcome
 
     async def resolve_pause(self, dispatch: DispatchOutcome) -> bool:

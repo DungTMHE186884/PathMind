@@ -1,6 +1,0 @@
-short_description: "Browse the curated knowledge tree (Domain -> topic -> node) maintained by administrators."
-when_to_use: "When the learner asks about a subject that may be covered by a curated domain, or you need the authoritative outline / source excerpt for a topic. Skip for chit-chat and unrelated questions."
-input_format: "action = domains | outline | read | search; outline needs domain_id, read needs node_id, search needs query."
-guideline: "Start with action=search or domains, then outline, then read the one node you need. Prefer the node's source excerpt over your own memory when they differ, and say which node you used."
-note: "Returns '(no domains yet)' or '(no matches)' when nothing is published; answer normally then."
-phase: "exploration"

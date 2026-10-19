@@ -16,14 +16,14 @@ import {
   updateUserSubscriptionPlan,
   cancelUserSubscription,
   type UserRecord,
+  type UserRole,
   type AccountPreset,
   type AdminStats,
   type AdminSubscriptionPlan,
   type AdminUserSubscription,
 } from "@/lib/admin-api";
-import AdminTabs from "@/components/admin/AdminTabs";
+import InviteRndCard from "@/components/admin/InviteRndCard";
 import { GrantEditor } from "@/features/multi-user/components/GrantEditor";
-import { BookPermissionEditor } from "@/features/multi-user/components/BookPermissionEditor";
 import { UserAvatar } from "@/components/UserAvatar";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { filterUsersByQuery } from "@/lib/admin-users";
@@ -55,6 +55,14 @@ function formatDate(iso: string, lang: Language): string {
   } catch {
     return "—";
   }
+}
+
+/** Translation key naming an account's role (``user`` is a learner). */
+function roleLabel(role: string): string {
+  if (role === "admin") return "Admin";
+  if (role === "rnd") return "R&D";
+  if (role === "educator") return "Educator";
+  return "Learner";
 }
 
 export default function AdminUsersPage() {
@@ -247,11 +255,10 @@ export default function AdminUsersPage() {
   const filteredUsers = filterUsersByQuery(users, query);
 
   return (
-    <div className="h-screen overflow-y-auto bg-[var(--background)] px-4 py-10 [scrollbar-gutter:stable]">
+    <div className="h-full overflow-y-auto bg-[var(--background)] px-4 py-10 [scrollbar-gutter:stable]">
       <div className="mx-auto max-w-5xl">
         {/* Header */}
         <div className="mb-8">
-          <AdminTabs pendingPayments={stats?.pending_payments} />
 
           <div className="flex items-start justify-between gap-4">
             <div>
@@ -289,6 +296,8 @@ export default function AdminUsersPage() {
             </div>
           </div>
         </div>
+
+        <InviteRndCard />
 
         {actionError && (
           <div className="mb-4 rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
@@ -528,7 +537,7 @@ export default function AdminUsersPage() {
                             {isAdmin && (
                               <ShieldCheck size={11} strokeWidth={2} />
                             )}
-                            {isAdmin ? t("Admin") : t("User")}
+                            {t(roleLabel(user.role))}
                           </span>
                           {!isAdmin && user.preset && (
                             <span className="mt-1 block text-[11px] text-[var(--muted-foreground)]">
@@ -609,6 +618,33 @@ export default function AdminUsersPage() {
                                 <SlidersHorizontal size={15} />
                               </button>
                             )}
+                            {!isAdmin && (
+                              <select
+                                aria-label={t("Role")}
+                                value={user.role}
+                                disabled={isSelf}
+                                onChange={async (e) => {
+                                  const newRole = e.target.value as UserRole;
+                                  try {
+                                    await setUserRole(user.username, newRole);
+                                    setUsers((prev) =>
+                                      prev.map((u) =>
+                                        u.username === user.username
+                                          ? { ...u, role: newRole }
+                                          : u,
+                                      ),
+                                    );
+                                  } catch {
+                                    setActionError(t("Failed to update role"));
+                                  }
+                                }}
+                                className="rounded-lg border border-[var(--border)] bg-[var(--background)] px-1.5 py-1 text-xs"
+                              >
+                                <option value="user">{t("Learner")}</option>
+                                <option value="educator">{t("Educator")}</option>
+                                <option value="rnd">{t("R&D")}</option>
+                              </select>
+                            )}
                             <button
                               onClick={() =>
                                 setConfirmTarget({
@@ -668,7 +704,6 @@ export default function AdminUsersPage() {
                               userId={user.id}
                               lockLearningPolicy={user.preset === "learner"}
                             />
-                            <BookPermissionEditor userId={user.id} />
                           </td>
                         </tr>
                       )}
@@ -733,10 +768,7 @@ export default function AdminUsersPage() {
                 </p>
                 <p className="text-xs text-[var(--muted-foreground)]">
                   {t("{{role}} · joined {{date}}", {
-                    role:
-                      confirmTarget.user.role === "admin"
-                        ? t("Admin")
-                        : t("User"),
+                    role: t(roleLabel(confirmTarget.user.role)),
                     date: formatDate(confirmTarget.user.created_at, lang),
                   })}
                 </p>

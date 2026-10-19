@@ -13,14 +13,12 @@ itself must still run.
 
 from __future__ import annotations
 
-import asyncio
 from dataclasses import dataclass
 import logging
 from typing import Any, Iterable
 
 from pathmind.core.tool_protocol import BaseTool, ToolLookup
 from pathmind.runtime.providers.allowlist import Allowlist
-from pathmind.runtime.providers.authorize import authorize_mcp_tools
 from pathmind.runtime.providers.scope import ToolScope
 from pathmind.runtime.registry.deferred_tools import (
     DeferredToolLoader,
@@ -29,12 +27,6 @@ from pathmind.runtime.registry.deferred_tools import (
 from pathmind.runtime.registry.scoped_registry import ScopedToolRegistry
 
 logger = logging.getLogger(__name__)
-
-#: Ceiling on connecting a caller's own servers. This runs before the turn's
-#: first stream event, so it is the one place a slow third-party host could
-#: present as "PathMind hung".
-_OWNER_SCOPE_TIMEOUT_S = 3.0
-
 
 @dataclass(frozen=True)
 class ProviderToolView:
@@ -102,64 +94,32 @@ async def _build(
     overlay_tools: tuple[BaseTool, ...],
     preloaded_names: frozenset[str],
 ) -> ProviderToolView:
-    from pathmind.services.mcp import get_mcp_manager, load_loaded_tools
-
-    manager = get_mcp_manager()
-    if scope.workspace_mcp is None or any(r.startswith("deployment:") for r in scope.workspace_mcp):
-        await manager.ensure_started()
+    from pathmind.runtime.registry.session_state import load_loaded_tools
 
     shared_pool = list(base_registry.deferred_tools())
-    owned_pool = (
-        await _owned_tools(manager, scope)
-        if scope.workspace_mcp is None or any(r.startswith("account:") for r in scope.workspace_mcp)
-        else []
-    )
-    cli_pool = _cli_app_tools(scope)
-    if not shared_pool and not owned_pool and not cli_pool and not overlay_tools:
+    if not shared_pool and not overlay_tools:
         return ProviderToolView.empty(base_registry)
 
-    allowed = authorize_mcp_tools(
-        scope=scope,
-        user_grant=_user_grant(scope),
-        # Servers the caller configured themselves are authorised by ownership:
-        # the admin grant governs the deployment's shared servers, and applying
-        # it here would make self-service configuration silently useless.
-        owned_names=[tool.get_definition().name for tool in owned_pool],
-    )
-    # CLI apps are authorised by *app id*, not by tool name, and by a different
-    # grant field — so their decision is made in ``cli_apps.provider`` and the
-    # names it approved are widened in here. Widening an unrestricted allowlist
-    # is identity, so an administrator is unaffected.
-    allowed = allowed.widen(tool.get_definition().name for tool in cli_pool)
+    # Deferred tools are no longer fed by external servers. What is left is the
+    # shared pool of the base registry, gated by the caller's whitelist (partner
+    # turns) and the overlay tools bound to resources selected for this turn.
+    if scope.exclusive_capability:
+        allowed = Allowlist.of([])
+    else:
+        caller = Allowlist.of(scope.caller_whitelist) if scope.is_partner else Allowlist.unrestricted()
+        allowed = caller
     # Resource-bound overlays (including PageIndex SDK tools) are authorised by
     # possession of the selected resource and live only in this turn's registry.
     allowed = allowed.widen(tool.get_definition().name for tool in overlay_tools)
 
-    if scope.workspace_mcp is not None:
-        from pathmind.core.tool_protocol import provider_identity
-        from pathmind.services.mcp.manager import SHARED_OWNER
-
-        workspace_names = []
-        for tool in (*shared_pool, *owned_pool, *cli_pool, *overlay_tools):
-            kind, server = provider_identity(tool)
-            origin = (
-                "deployment" if getattr(tool, "owner", SHARED_OWNER) == SHARED_OWNER else "account"
-            )
-            if kind != "mcp" or f"{origin}:{server}" in scope.workspace_mcp:
-                workspace_names.append(tool.name)
-        allowed = allowed.narrow(Allowlist.of(workspace_names))
-
     pool = tuple(
         tool
-        for tool in (*shared_pool, *owned_pool, *cli_pool, *overlay_tools)
+        for tool in (*shared_pool, *overlay_tools)
         if allowed.allows(tool.get_definition().name)
     )
     registry = ScopedToolRegistry(
         base=base_registry,
-        # Owner-scoped tools live only in this turn's overlay — they are never
-        # published to the process registry, so two accounts whose servers share
-        # a name cannot resolve to each other's session.
-        overlay=[*owned_pool, *cli_pool, *overlay_tools],
+        overlay=[*overlay_tools],
         allowed=allowed,
         refusal_message=refusal_message,
     )
@@ -183,79 +143,6 @@ async def _build(
         else render_deferred_tools_manifest(list(pool), language=language)
     )
     return ProviderToolView(registry=registry, loader=loader, pool=pool, manifest=manifest)
-
-
-async def _owned_tools(manager: Any, scope: ToolScope) -> list[BaseTool]:
-    """Tools from servers this caller configured for themselves.
-
-    Bounded by a per-scope timeout: connecting somebody's own remote server is a
-    network round-trip on the turn's critical path, before a single stream event
-    has been emitted. A slow server must cost this turn its own tools, not the
-    whole turn's first token.
-    """
-    if scope.is_partner or not scope.owner_id:
-        # A partner has no account of its own, so it has no self-configured
-        # servers; its surface is the deployment's, filtered by its own list.
-        return []
-    try:
-        return list(
-            await asyncio.wait_for(
-                manager.ensure_scope(scope.owner_id),
-                timeout=_OWNER_SCOPE_TIMEOUT_S,
-            )
-        )
-    except asyncio.TimeoutError:
-        logger.warning(
-            "per-user MCP scope for %s did not connect in %ss; continuing without",
-            scope.owner_id,
-            _OWNER_SCOPE_TIMEOUT_S,
-        )
-        return []
-    except Exception:
-        logger.warning("per-user MCP scope for %s failed", scope.owner_id, exc_info=True)
-        return []
-
-
-def _cli_app_tools(scope: ToolScope) -> list[BaseTool]:
-    """Installed CLI apps this caller may invoke, as tools.
-
-    Synchronous and cheap on purpose — it reads two small JSON files. Unlike the
-    MCP side there is nothing to connect, so there is no timeout to bound and no
-    reason for this to be on the turn's critical path as an awaited task.
-
-    An exclusive knowledge capability replaces the tool surface entirely, so it
-    gets none of these (the same rule ``authorize_mcp_tools`` applies to MCP).
-    """
-    if scope.exclusive_capability:
-        return []
-    try:
-        from pathmind.multi_user.tool_access import allowed_cli_apps, exec_override
-        from pathmind.services.cli_apps.provider import authorized_apps, build_app_tools
-
-        access = authorized_apps(
-            owner_id=scope.owner_id,
-            is_partner=scope.is_partner,
-            granted=allowed_cli_apps(),
-            exec_allowed=exec_override(),
-        )
-        return build_app_tools(access.apps)
-    except Exception:
-        logger.warning("CLI app tools unavailable this turn; continuing", exc_info=True)
-        return []
-
-
-def _user_grant(scope: ToolScope) -> Allowlist:
-    """The caller's ``grant.mcp_tools``, or unrestricted for a partner turn.
-
-    A partner has no account and therefore no grant; its surface is decided by
-    the partner's own configured whitelist, which reaches us as
-    ``scope.caller_whitelist``.
-    """
-    if scope.is_partner:
-        return Allowlist.unrestricted()
-    from pathmind.multi_user.tool_access import allowed_mcp_tools
-
-    return Allowlist.of(allowed_mcp_tools())
 
 
 __all__ = ["ProviderToolView", "build_tool_view"]

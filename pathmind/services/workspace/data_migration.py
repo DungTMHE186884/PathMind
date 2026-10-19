@@ -275,35 +275,6 @@ def _backend() -> str:
     return "pocketbase" if is_pocketbase_enabled() else "sqlite"
 
 
-def _shared_source_blockers(source_id: str, selected: set[str]) -> list[str]:
-    """The admin default catalogue remains the canonical shared resource store."""
-    from pathmind.multi_user.context import get_current_user
-    from pathmind.services.auth import AUTH_ENABLED
-
-    if source_id or not AUTH_ENABLED or not get_current_user().is_admin:
-        return []
-    from pathmind.multi_user.book_permission import normalize_book_permission
-    from pathmind.multi_user.grants import load_grant
-    from pathmind.multi_user.identity import list_user_info
-
-    blockers = set()
-    for user in list_user_info():
-        if user.get("role") == "admin":
-            continue
-        permission = normalize_book_permission(user.get("book_permission"))
-        if "book" in selected and (
-            permission.default != "none" or any(level != "none" for _, level in permission.books)
-        ):
-            blockers.add(
-                "Books are shared with other accounts. Remove those grants before moving the shared catalogue, or export a copy."
-            )
-        if "knowledge_bases" in selected and load_grant(user["id"]).get("knowledge_bases"):
-            blockers.add(
-                "Knowledge bases are shared with other accounts. Remove those grants before migrating, or export a copy."
-            )
-    return sorted(blockers)
-
-
 def preview(
     source_id: str, target_id: str, features: list[str], *, session_ids: set[str] | None = None
 ) -> dict:
@@ -328,7 +299,6 @@ def preview(
         target_id = target_scope.workspace_id
         rows = [row for row in data["features"] if row["feature"] in selected]
         blockers = [row["error"] for row in rows if row["error"]]
-        blockers.extend(_shared_source_blockers(source_id, selected))
         if "knowledge_bases" in selected:
             from pathmind.services.workspace.resources import knowledge_migration_blockers
 

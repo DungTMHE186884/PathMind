@@ -74,7 +74,7 @@ DEFAULT_PLANS: list[dict] = [
     {
         "id": "plus",
         "name": "Plus",
-        "description": "For regular learners who want learning paths, AI books and the community.",
+        "description": "For regular learners who want mastery paths, AI books and the community.",
         "sort_order": 5,
         "price_monthly": 4.99,
         "price_yearly": 49.0,

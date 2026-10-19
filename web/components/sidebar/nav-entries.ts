@@ -1,11 +1,11 @@
 import { LEARNING_HUB } from '@/lib/learning-routes'
 import {
+  GitBranch,
   GraduationCap,
   HeartHandshake,
   House,
   LayoutGrid,
   MessagesSquare,
-  Network,
   PenLine,
   School,
   Settings,
@@ -25,6 +25,8 @@ export interface NavEntry {
   requires?: Capability
   /** Plan entitlement this feature needs; shown locked with an upgrade link. */
   plan?: PlanRequirement
+  /** Only these roles see the entry (undefined = everyone). */
+  roles?: Array<'admin' | 'rnd' | 'educator' | 'user'>
 }
 
 /**
@@ -59,7 +61,15 @@ export const PRIMARY_NAV: NavEntry[] = [
     tooltipKey: 'Courses tooltip',
     plan: { feature: 'courses' },
   },
-  { href: '/knowledge-tree', label: 'Knowledge Tree', icon: Network, tooltipKey: 'Knowledge Tree tooltip' },
+  {
+    href: '/knowledge-branch',
+    label: 'My Knowledge',
+    icon: GitBranch,
+    tooltipKey: 'My Knowledge tooltip',
+    // Every learner and educator has a personal branch (it grows from their own
+    // uploads). R&D and administrators work on the main tree in the staff console.
+    roles: ['educator', 'user'],
+  },
   {
     href: '/co-writer',
     label: 'Co-Writer',

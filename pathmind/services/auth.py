@@ -220,10 +220,10 @@ def set_role(username: str, role: str) -> bool:
     """
     Change the role for an existing user. Returns True on success.
 
-    Valid roles: 'admin', 'user'.
+    Valid roles: 'admin', 'rnd', 'educator', 'user'.
     """
-    if role not in ("admin", "user"):
-        raise ValueError(f"Invalid role: {role!r}. Must be 'admin' or 'user'.")
+    if role not in ("admin", "rnd", "educator", "user"):
+        raise ValueError(f"Invalid role: {role!r}. Must be 'admin', 'rnd', 'educator' or 'user'.")
 
     from pathmind.multi_user.identity import set_role as _set_role
 
