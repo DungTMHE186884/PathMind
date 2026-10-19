@@ -36,6 +36,11 @@ Chú thích: ✅ hoàn thiện · 🟡 chạy được nhưng chưa đầy đủ
 
 ---
 
+### Seed, key LLM cũ, trang Models (2026-10-20)
+- **Seed một file** (`services/seed.py`): khởi động ⇒ nạp mọi `data/seed/*.json` mới/đổi (bỏ `*.example.json`; nhớ hash ở `data/seed/.applied.json`). Gồm `accounts` (vai trò, gói; không có mật khẩu ⇒ sinh và ghi `data/seed/seed-accounts.txt`), `schema`, `knowledge` (domain viết dạng tài liệu có `@…`), `llm_providers` (key mã hoá khi ghi), `reward_rules`. Không ghi đè gì đã có. Mẫu: `seed/pathmind-seed.example.json` (không có mật khẩu/key); CLI `scripts/load_seed.py`. Test: `tests_pm/multi_user/test_seed.py`.
+- **Key LLM từ bản cũ**: `scripts/import_llm_keys.py --catalog <model_catalog.json> [--rewrite-db]` gộp connection/profile theo id (chạy lại không trùng), `--rewrite-db` đọc `public.ai_providers` của bản `backend/` và giải mã bằng `data/secret.key`. Đã nhập 2026-10-20 từ `C:\PathMind_removed\db_backup\model_catalog_before_encrypt.json` (Gemini, Anthropic, OpenAI, DeepSeek) + proxy `api.xah.io` (binding `custom`). Khoá mã hoá key: `data/system/secrets.key` — **sao lưu riêng**, mất là phải nhập lại key.
+- **Admin → Plans** chỉ còn gói cước (vẫn đọc bảng giá để tính % chi phí); **Admin → Models** (`/admin/models`) giữ bảng giá API model + lối tới Settings → Connections / LLM.
+
 ### Knowledge graph (2026-10-20) — thay cho "cây tri thức"
 - Trên giao diện, công cụ AI và dữ liệu cho LLM mọi chỗ đều gọi là **knowledge graph**. Tên nội bộ giữ nguyên: module `services/knowledge_tree/`, API `/api/knowledge-tree`, bảng `knowledge_nodes`, `knowledge_tree_changes`.
 - **Nút** (`KnowledgeNode`): `label` (kiểu/class theo schema), `layer` (tuỳ chọn, chữ tự do ≤12 ký tự, để trống được; không còn khái niệm principle/instance), `properties` (JSON key–value), `key` (ID đọc được, duy nhất trong domain, tự sinh từ tiêu đề, vd `linear-equations`), `names` (tên theo ngôn ngữ `{"vi":…, "en":…}`), `description` (mô tả ngắn), `provenance` (`source`, `confidence` 0–1, `note`), `created_by/at`, `updated_by/at`; `parent_id` của dàn bài = cạnh `PART_OF` ngầm.

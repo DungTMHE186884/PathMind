@@ -537,6 +537,14 @@ from pathmind.api.routers.multi_user import router as multi_user_router  # noqa:
 from pathmind.database.connection import init_database
 init_database()
 
+# Seed files in data/seed/ (accounts, knowledge graph, LLM providers...) load once.
+try:
+    from pathmind.services.seed import apply_pending as _apply_seeds
+
+    _apply_seeds()
+except Exception as _seed_exc:  # noqa: BLE001 - never block start-up
+    logging.getLogger(__name__).warning("Seed loading skipped: %s", _seed_exc)
+
 # Auth router is public — login/logout/register/status require no token
 app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
 app.include_router(outputs.router, prefix="/files/outputs", tags=["outputs"])

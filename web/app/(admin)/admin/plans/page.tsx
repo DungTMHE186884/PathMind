@@ -14,7 +14,6 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import ModelPriceTable from "@/components/admin/ModelPriceTable";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { fetchAuthStatus } from "@/lib/auth";
 import { inputClass as settingsInputClass } from "@/components/settings/shared";
@@ -305,11 +304,11 @@ export default function AdminPlansPage() {
         <div className="mb-6 flex flex-col justify-between gap-3 sm:flex-row sm:items-end">
           <div>
             <h1 className="font-serif text-xl font-semibold text-[var(--foreground)]">
-              {t("Plans & model configuration")}
+              {t("Plans")}
             </h1>
             <p className="mt-1 text-xs text-[var(--muted-foreground)]">
               {t(
-                "Pricing, token/storage quotas and the list of AI models for each plan. Changes apply immediately to all users of the plan.",
+                "Prices, credit and storage quotas, features and the models each plan may use. Model prices and providers are on the Models page. Changes apply immediately to all users of the plan.",
               )}
             </p>
           </div>
@@ -763,19 +762,6 @@ export default function AdminPlansPage() {
           </div>
         )}
 
-        {!loading && priceList && (
-          <div className="mt-8">
-            <ModelPriceTable
-              key={JSON.stringify(priceList.prices)}
-              data={priceList}
-              onChanged={() => {
-                flash(t("Model price list updated."));
-                void load();
-              }}
-              onError={setError}
-            />
-          </div>
-        )}
       </div>
 
       {showCreate && (

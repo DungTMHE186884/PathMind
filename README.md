@@ -24,6 +24,18 @@ start.bat
 
 Cấu hình tuỳ chọn: xem `.env.example`. Dữ liệu chạy nằm trong `data/`.
 
+### Dữ liệu mẫu cho team (một file là chạy được)
+
+1. Chép `seed\pathmind-seed.example.json` thành `data\seed\team.json` (thư mục `data\` không lên git).
+2. Nếu muốn chat được ngay, điền key LLM của **chính bạn** vào mục `llm_providers` trong bản chép
+   (xem mẫu `_llm_providers_example`; `binding`: `openai` | `anthropic` | `gemini` | `deepseek` | `custom` cho endpoint tương thích OpenAI).
+3. Chạy `start.bat`. Lần khởi động đầu, backend tự nạp: tài khoản admin / rnd / teacher (gói Plus) / student,
+   hai domain knowledge graph mẫu, và nhà cung cấp LLM nếu có. Mật khẩu sinh ngẫu nhiên nằm ở `data\seed\seed-accounts.txt`.
+
+Nạp lại nhiều lần không tạo trùng; sửa file rồi khởi động lại để thêm mục mới, hoặc chạy
+`python scripts\load_seed.py data\seed\team.json`. Lấy key từ cài đặt cũ: `python scripts\import_llm_keys.py --catalog <model_catalog.json cũ>`.
+Đăng nhập: admin → `/admin`, R&D → `/rnd`.
+
 ## Cấu trúc
 
 | Thư mục | Nội dung |

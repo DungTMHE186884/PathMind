@@ -9,6 +9,7 @@ import {
   BarChart3,
   FileText,
   Boxes,
+  Cpu,
   CalendarClock,
   ExternalLink,
   Gift,
@@ -66,7 +67,8 @@ export const CONSOLE_NAV: Record<StaffConsole, NavGroup[]> = {
       label: "Business",
       items: [
         { href: "/admin/users", label: "Users", icon: Users },
-        { href: "/admin/plans", label: "Plans & Models", icon: Boxes },
+        { href: "/admin/plans", label: "Plans", icon: Boxes },
+        { href: "/admin/models", label: "Models", icon: Cpu },
         { href: "/admin/payments", label: "Payments", icon: Receipt },
         { href: "/admin/insights", label: "Insights", icon: BarChart3 },
         { href: "/admin/rewards", label: "Rewards", icon: Gift },
