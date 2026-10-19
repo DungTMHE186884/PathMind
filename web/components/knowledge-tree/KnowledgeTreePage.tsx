@@ -1,5 +1,6 @@
 "use client";
 
+import NodeGraphPanel from "@/components/knowledge-tree/NodeGraphPanel";
 import { useCallback, useEffect, useState } from "react";
 import { ChevronDown, ChevronRight, Loader2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -113,11 +114,11 @@ export default function KnowledgeTreePage() {
       <div className="mx-auto max-w-6xl">
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h1 className="font-serif text-xl font-semibold">{t("Knowledge Tree")}</h1>
+            <h1 className="font-serif text-xl font-semibold">{t("Knowledge Graph")}</h1>
             <p className="mt-1 text-xs text-[var(--muted-foreground)]">
               {rights.can_edit
-                ? t("You are an administrator: build the tree and link it to a GraphRAG knowledge base.")
-                : t("Browse the curated domains your tutor can draw on.")}
+                ? t("You curate the main graph: build it from documents and link it to a GraphRAG knowledge base.")
+                : t("Read-only: only R&D changes the main graph. Its edits are listed under Edit history.")}
             </p>
           </div>
         </div>
@@ -216,9 +217,10 @@ export default function KnowledgeTreePage() {
                         )}
                       </div>
                     </div>
-                    {rights.can_edit && (
+                    {(rights.can_edit || rights.can_view) && (
                       <StorePanel
                         key={`store-${tree.domain.id}`}
+                        canEdit={rights.can_edit}
                         domainId={tree.domain.id}
                         domainName={tree.domain.name}
                         onError={fail}
@@ -257,6 +259,8 @@ export default function KnowledgeTreePage() {
                         onAdd={() => setDraft({ kind: "add", parent: findNode(tree.nodes, selected.id) })}
                         onEdit={() => setDraft({ kind: "edit", node: selected })}
                         onDelete={() => setDraft({ kind: "delete", node: selected })}
+                        onGraphChanged={() => void getNode(selected.id).then(setSelected).catch(fail)}
+                        onError={fail}
                       />
                     ) : (
                       <p className="text-sm text-[var(--muted-foreground)]">{t("Select a node to read it.")}</p>
@@ -343,14 +347,24 @@ function NodeRow({
 }
 
 function NodePanel({
-  node, rights, onAdd, onEdit, onDelete,
-}: { node: NodeDetail; rights: Rights; onAdd: () => void; onEdit: () => void; onDelete: () => void }) {
+  node, rights, onAdd, onEdit, onDelete, onGraphChanged, onError,
+}: {
+  node: NodeDetail; rights: Rights; onAdd: () => void; onEdit: () => void; onDelete: () => void;
+  onGraphChanged: () => void; onError: (e: unknown) => void;
+}) {
   const { t } = useTranslation();
   const can = rights.can_edit;
   return (
     <div>
       <h3 className="text-sm font-semibold">{node.title}</h3>
       {node.summary && <p className="mt-2 whitespace-pre-wrap text-[13px]">{node.summary}</p>}
+      <NodeGraphPanel
+        key={`${node.id}-${node.version}`}
+        node={node}
+        canEdit={can}
+        onChanged={onGraphChanged}
+        onError={onError}
+      />
       {node.excerpts.map((ex) => (
         <details key={ex.source_id} className="mt-3 text-[12px]">
           <summary className="cursor-pointer text-[var(--muted-foreground)]">{ex.filename}</summary>
@@ -517,11 +531,14 @@ function StorePanel({
   domainName,
   onError,
   onImported,
+  canEdit,
 }: {
   domainId: string;
   domainName: string;
   onError: (e: unknown) => void;
   onImported: () => void;
+  /** False for administrators: they read and download, R&D changes. */
+  canEdit: boolean;
 }) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
@@ -557,6 +574,7 @@ function StorePanel({
       {open && (
         <div className="mt-2 space-y-2 text-[12px]">
           <div className="flex flex-wrap gap-2">
+            {canEdit && (
             <label className={`${BTN} cursor-pointer`}>
               {t("Upload document")}
               <input
@@ -570,11 +588,13 @@ function StorePanel({
                 }}
               />
             </label>
+            )}
             <button type="button" className={BTN} disabled={busy} onClick={() => void act(() => exportTree(domainId, domainName))}>
-              {t("Export tree")}
+              {t("Export graph")}
             </button>
+            {canEdit && (
             <label className={`${BTN} cursor-pointer`}>
-              {t("Import tree")}
+              {t("Import graph")}
               <input
                 type="file"
                 hidden
@@ -586,6 +606,7 @@ function StorePanel({
                 }}
               />
             </label>
+            )}
             <button type="button" className={BTN} disabled={busy} onClick={() => void act(async () => setLog(await listAudit()))}>
               {t("Activity log")}
             </button>
@@ -599,6 +620,7 @@ function StorePanel({
                   <span className="min-w-0 truncate">{d.filename} <span className="text-[var(--muted-foreground)]">· {fmtSize(d.size)}</span></span>
                   <span className="flex shrink-0 gap-1">
                     <button type="button" className={BTN} disabled={busy} onClick={() => void act(() => downloadDocument(d))}>{t("Download")}</button>
+                    {canEdit && (
                     <button
                       type="button"
                       className={BTN}
@@ -610,6 +632,7 @@ function StorePanel({
                     >
                       {t("Delete")}
                     </button>
+                    )}
                   </span>
                 </li>
               ))}

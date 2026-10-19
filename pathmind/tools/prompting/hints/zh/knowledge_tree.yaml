@@ -1,6 +1,0 @@
-short_description: "浏览由管理员维护的知识树（领域 -> 主题 -> 节点）。"
-when_to_use: "当学习者询问的内容可能被某个已整理的领域覆盖，或需要某个主题的权威大纲/原文摘录时使用。闲聊和无关问题无需调用。"
-input_format: "action = domains | outline | read | search；outline 需要 domain_id，read 需要 node_id，search 需要 query。"
-guideline: "先 search 或 domains，再 outline，最后只 read 需要的那个节点。与你的记忆冲突时以节点原文为准，并说明使用了哪个节点。"
-note: "没有发布内容时返回 '(no domains yet)' 或 '(no matches)'，此时正常回答即可。"
-phase: "exploration"

@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from pathmind.api.routers.auth import require_educator, require_rnd
+from pathmind.api.routers.auth import require_educator, require_rnd, require_rnd_only
 from pathmind.database.connection import get_db
 from pathmind.multi_user.context import get_current_user
 from pathmind.services import recommendations as rec
@@ -71,12 +71,13 @@ def download(rec_id: str, index: int, db: Session = Depends(get_db)):
                     headers={"Content-Disposition": f'attachment; filename="{name.replace(chr(34), "")}"'})
 
 
-@router.post("/{rec_id}/merge", dependencies=[Depends(require_rnd)])
+# Merging changes the main tree, and deciding is R&D's job: administrators only watch.
+@router.post("/{rec_id}/merge", dependencies=[Depends(require_rnd_only)])
 def merge(rec_id: str, body: MergeBody, db: Session = Depends(get_db)):
     return _run(rec.merge, db, _uid(), rec_id, domain_id=body.domain_id, parent_id=body.parent_id,
                 node_ids=body.node_ids, adopt_documents=body.adopt_documents, note=body.note)
 
 
-@router.post("/{rec_id}/reject", dependencies=[Depends(require_rnd)])
+@router.post("/{rec_id}/reject", dependencies=[Depends(require_rnd_only)])
 def reject(rec_id: str, body: RejectBody, db: Session = Depends(get_db)):
     return _run(rec.reject, db, _uid(), rec_id, body.note)

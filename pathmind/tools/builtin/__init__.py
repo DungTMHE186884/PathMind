@@ -1715,7 +1715,7 @@ USER_TOGGLEABLE_TOOL_NAMES: tuple[str, ...] = (
 CONFIGURABLE_BUILTIN_TOOL_NAMES: tuple[str, ...] = (
     "rag",
     "kb_files",
-    "knowledge_tree",
+    "knowledge_graph",
     "knowledge_search",
     "knowledge_frontier",
     "read_source",
@@ -1760,23 +1760,27 @@ def __getattr__(name: str):
     return value
 
 
-class KnowledgeTreeTool(_PromptHintsMixin, BaseTool):
-    """Read the curated knowledge tree (Domain -> topic -> node)."""
+class KnowledgeGraphTool(_PromptHintsMixin, BaseTool):
+    """Read the curated knowledge graph (domains of typed nodes and typed relations)."""
 
     def get_definition(self) -> ToolDefinition:
         return ToolDefinition(
-            name="knowledge_tree",
+            name="knowledge_graph",
             description=(
-                "Browse the curated knowledge tree maintained by the administrators: "
-                "list domains, show a domain's outline, read one node with its "
-                "source excerpt, or search nodes by keyword."
+                "Browse the curated knowledge graph maintained by R&D. Every node has an id, "
+                "a type (label), names, a description, properties, provenance and source "
+                "excerpts; relations come as "
+                "(a:Label) -[REL {props}]-> (b:Label) triples such as TYPE_OF, PART_OF, "
+                "PREREQUISITE_OF. Actions: domains (list), schema (labels and relation types), "
+                "outline (a domain's tree), node (one node with its relations), neighbors "
+                "(relations around a node, optionally one relation type), search (keyword)."
             ),
             parameters=[
                 ToolParameter(
                     name="action",
                     type="string",
-                    description="domains | outline | read | search",
-                    enum=["domains", "outline", "read", "search"],
+                    description="domains | schema | outline | node | neighbors | search",
+                    enum=["domains", "schema", "outline", "node", "neighbors", "search"],
                 ),
                 ToolParameter(
                     name="domain_id",
@@ -1787,7 +1791,13 @@ class KnowledgeTreeTool(_PromptHintsMixin, BaseTool):
                 ToolParameter(
                     name="node_id",
                     type="string",
-                    description="Node id (for action=read).",
+                    description="Node id (for action=node or neighbors).",
+                    required=False,
+                ),
+                ToolParameter(
+                    name="relation",
+                    type="string",
+                    description="Optional relation type filter, e.g. PREREQUISITE_OF (for action=neighbors).",
                     required=False,
                 ),
                 ToolParameter(
@@ -1802,54 +1812,49 @@ class KnowledgeTreeTool(_PromptHintsMixin, BaseTool):
     async def execute(self, **kwargs: Any) -> ToolResult:
         from pathmind.database.connection import get_db_session
         from pathmind.services import knowledge_tree as kt
+        from pathmind.services.knowledge_tree import llm_view
 
         action = str(kwargs.get("action") or "domains").strip()
+        action = llm_view.ACTION_ALIASES.get(action, action)
         try:
             with get_db_session() as db:
-                if action == "domains":
-                    rows = kt.domain_summaries(db)
-                    text = "\n".join(
-                        f"- {d['name']} [{d['id']}] ({d['nodes']} nodes) {d['description'][:120]}"
-                        for d in rows
-                    ) or "(no domains yet)"
-                elif action == "outline":
-                    text = kt.outline_text(db, str(kwargs.get("domain_id") or ""))
-                elif action == "read":
-                    d = kt.node_detail(db, str(kwargs.get("node_id") or ""))
-                    parts = [f"# {d['title']}", d["summary"]]
-                    for ex in d["excerpts"]:
-                        parts.append(f"--- source: {ex['filename']} ---\n{ex['text']}")
-                    text = "\n\n".join(p for p in parts if p)
-                elif action == "search":
-                    hits = kt.search_nodes(db, str(kwargs.get("query") or ""))
-                    text = "\n".join(
-                        f"- {h['title']} [{h['id']}] ({h['domain']}): {h['summary'][:160]}" for h in hits
-                    ) or "(no matches)"
-                else:
-                    return ToolResult(content=f"Error: unknown action {action!r}.", success=False)
+                text = llm_view.run_action(
+                    db,
+                    action,
+                    domain_id=kwargs.get("domain_id"),
+                    node_id=kwargs.get("node_id"),
+                    relation=kwargs.get("relation"),
+                    query=kwargs.get("query"),
+                )
+        except ValueError:
+            return ToolResult(content=f"Error: unknown action {action!r}.", success=False)
         except kt.TreeError as exc:
             return ToolResult(content=f"Error: {exc.message}", success=False)
         return ToolResult(content=text, metadata={"action": action, "char_count": len(text)})
 
 
+KnowledgeTreeTool = KnowledgeGraphTool  # backward-compatible name
+
+
 class KnowledgeSearchTool(_PromptHintsMixin, BaseTool):
-    """Unified retrieval: curated knowledge tree + GraphRAG in one call."""
+    """Unified retrieval: curated knowledge graph + GraphRAG in one call."""
 
     def get_definition(self) -> ToolDefinition:
         return ToolDefinition(
             name="knowledge_search",
             description=(
                 "Answer a subject question from the organisation's curated knowledge "
-                "tree and its GraphRAG knowledge base together. The tree locates the "
-                "topic and gives authoritative excerpts; GraphRAG adds related passages "
-                "and relationships. Returns one merged context with topic paths and sources."
+                "graph and its GraphRAG knowledge base together. The knowledge graph "
+                "locates the topic, gives authoritative excerpts, node labels/properties "
+                "and 'Graph facts' triples; GraphRAG adds related passages. Returns one "
+                "merged context with topic paths and sources."
             ),
             parameters=[
                 ToolParameter(name="query", type="string", description="The question or topic to look up."),
                 ToolParameter(
                     name="domain_id",
                     type="string",
-                    description="Optional: restrict to one domain (from knowledge_tree action=domains).",
+                    description="Optional: restrict to one domain (from knowledge_graph action=domains).",
                     required=False,
                 ),
             ],
@@ -1885,6 +1890,7 @@ __all__ = [
     "GeoGebraAnalysisTool",
     "GithubTool",
     "KbFilesTool",
+    "KnowledgeGraphTool",
     "KnowledgeTreeTool",
     "KnowledgeSearchTool",
     "ImagegenTool",

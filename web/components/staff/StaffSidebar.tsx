@@ -7,6 +7,7 @@ import { useEffect, useState } from "react";
 import {
   Activity,
   BarChart3,
+  FileText,
   Boxes,
   CalendarClock,
   ExternalLink,
@@ -28,13 +29,12 @@ import { useAuthStatus } from "@/hooks/useAuthStatus";
 import { getAdminStats } from "@/lib/admin-api";
 import { logout } from "@/lib/auth";
 
-type StaffRole = "admin" | "rnd";
+import type { StaffConsole } from "@/components/admin/StaffGuard";
 
 interface NavItem {
   href: string;
   label: string;
   icon: LucideIcon;
-  roles: readonly StaffRole[];
 }
 
 interface NavGroup {
@@ -42,59 +42,68 @@ interface NavGroup {
   items: NavItem[];
 }
 
-const BOTH: readonly StaffRole[] = ["admin", "rnd"];
-const ADMIN: readonly StaffRole[] = ["admin"];
+// Each console has its own map: R&D curates knowledge under /rnd,
+// administrators run the business and the system under /admin (and only read
+// the knowledge graph). Neither shares a navigation with learners or educators.
+export const CONSOLE_NAV: Record<StaffConsole, NavGroup[]> = {
+  rnd: [
+    {
+      label: "Knowledge",
+      items: [
+        { href: "/rnd/knowledge", label: "Main knowledge graph", icon: Network },
+        { href: "/rnd/samples", label: "Samples", icon: FileText },
+        { href: "/rnd/reviews", label: "Branch reviews", icon: Inbox },
+        { href: "/rnd/rewards", label: "Rewards", icon: Gift },
+      ],
+    },
+    {
+      label: "System",
+      items: [{ href: "/rnd/status", label: "System Status", icon: Activity }],
+    },
+  ],
+  admin: [
+    {
+      label: "Business",
+      items: [
+        { href: "/admin/users", label: "Users", icon: Users },
+        { href: "/admin/plans", label: "Plans & Models", icon: Boxes },
+        { href: "/admin/payments", label: "Payments", icon: Receipt },
+        { href: "/admin/insights", label: "Insights", icon: BarChart3 },
+        { href: "/admin/rewards", label: "Rewards", icon: Gift },
+      ],
+    },
+    {
+      label: "Knowledge (read-only)",
+      items: [
+        { href: "/admin/knowledge", label: "Main knowledge graph", icon: Network },
+        { href: "/admin/reviews", label: "Branch reviews", icon: Inbox },
+        { href: "/admin/samples", label: "Samples", icon: FileText },
+      ],
+    },
+    {
+      label: "System",
+      items: [
+        { href: "/admin/status", label: "System Status", icon: Activity },
+        { href: "/admin/settings", label: "System settings", icon: SlidersHorizontal },
+        { href: "/admin/jobs", label: "Jobs", icon: CalendarClock },
+        { href: "/admin/storage", label: "Storage", icon: HardDrive },
+        { href: "/admin/audit", label: "Audit log", icon: ScrollText },
+      ],
+    },
+  ],
+};
 
-// R&D curates knowledge; administrators run the business and the system.
-// Neither shares a navigation with learners or educators.
-export const STAFF_NAV: NavGroup[] = [
-  {
-    label: "Knowledge R&D",
-    items: [
-      { href: "/admin/knowledge", label: "Main knowledge tree", icon: Network, roles: BOTH },
-      { href: "/admin/reviews", label: "Branch reviews", icon: Inbox, roles: BOTH },
-      { href: "/admin/rewards", label: "Rewards", icon: Gift, roles: BOTH },
-    ],
-  },
-  {
-    label: "Business",
-    items: [
-      { href: "/admin/users", label: "Users", icon: Users, roles: ADMIN },
-      { href: "/admin/plans", label: "Plans & Models", icon: Boxes, roles: ADMIN },
-      { href: "/admin/payments", label: "Payments", icon: Receipt, roles: ADMIN },
-      { href: "/admin/insights", label: "Insights", icon: BarChart3, roles: ADMIN },
-    ],
-  },
-  {
-    label: "System",
-    items: [
-      { href: "/admin/status", label: "System Status", icon: Activity, roles: BOTH },
-      { href: "/admin/settings", label: "System settings", icon: SlidersHorizontal, roles: ADMIN },
-      { href: "/admin/jobs", label: "Jobs", icon: CalendarClock, roles: ADMIN },
-      { href: "/admin/storage", label: "Storage", icon: HardDrive, roles: ADMIN },
-      { href: "/admin/audit", label: "Audit log", icon: ScrollText, roles: ADMIN },
-    ],
-  },
-];
-
-export function staffRoleOf(auth: { enabled: boolean; isAdmin: boolean; isRnd: boolean }): StaffRole | null {
-  if (!auth.enabled || auth.isAdmin) return "admin";
-  if (auth.isRnd) return "rnd";
-  return null;
-}
-
-/** Navigation of the staff console (R&D and administrators). */
-export default function StaffSidebar() {
+/** Navigation of one staff console (``/admin`` or ``/rnd``). */
+export default function StaffSidebar({ console: owner }: { console: StaffConsole }) {
   const { t } = useTranslation();
   const pathname = usePathname() ?? "";
   const router = useRouter();
   const drawer = useSidebarDrawer();
   const auth = useAuthStatus();
-  const role = staffRoleOf(auth);
   const [pendingPayments, setPendingPayments] = useState(0);
 
   useEffect(() => {
-    if (role !== "admin") return;
+    if (owner !== "admin") return;
     let alive = true;
     getAdminStats()
       .then((stats) => alive && setPendingPayments(stats.pending_payments || 0))
@@ -102,7 +111,7 @@ export default function StaffSidebar() {
     return () => {
       alive = false;
     };
-  }, [role, pathname]);
+  }, [owner, pathname]);
 
   const signOut = async () => {
     await logout();
@@ -116,15 +125,14 @@ export default function StaffSidebar() {
         <div className="min-w-0 leading-tight">
           <div className="text-[13px] font-semibold text-[var(--foreground)]">PathMind</div>
           <div className="text-[10px] uppercase tracking-[0.14em] text-[var(--muted-foreground)]">
-            {t("Staff console")}
+            {owner === "rnd" ? t("R&D console") : t("Admin console")}
           </div>
         </div>
       </div>
 
-      <nav className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 pb-3" aria-label={t("Staff console")}>
-        {STAFF_NAV.map((group) => {
-          const items = group.items.filter((item) => role && item.roles.includes(role));
-          if (items.length === 0) return null;
+      <nav className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 pb-3" aria-label={owner === "rnd" ? t("R&D console") : t("Admin console")}>
+        {CONSOLE_NAV[owner].map((group) => {
+          const items = group.items;
           return (
             <section key={group.label} className="mt-3">
               <div className="mb-1 px-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--muted-foreground)]">
@@ -166,7 +174,7 @@ export default function StaffSidebar() {
             <div className="truncate text-[13px] font-medium text-[var(--foreground)]">{auth.username || t("Local")}</div>
           </div>
           <span className="shrink-0 rounded-md border border-[var(--border)] bg-[var(--card)] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--primary)]">
-            {role === "rnd" ? t("R&D") : t("Admin")}
+            {owner === "rnd" ? t("R&D") : t("Admin")}
           </span>
         </div>
         <Link

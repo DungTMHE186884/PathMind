@@ -1,4 +1,4 @@
-"""Knowledge-tree rules: R&D (and administrators) curate the main tree; it is hidden
+"""Knowledge-tree rules: R&D (and administrators) curate the main graph; it is hidden
 from everyone else, who only meet it through the tutor.
 
 The tutor reads the tree (``knowledge_tree`` / ``knowledge_search`` tools).
@@ -23,7 +23,10 @@ from pathmind.database.models import (
 
 from . import ingest
 
-EDIT_ROLES = frozenset({"admin", "rnd"})
+# Only R&D changes the main graph. Administrators read it and its edit history
+# (so they can follow what R&D commits) but cannot edit it from their account.
+EDIT_ROLES = frozenset({"rnd"})
+VIEW_ROLES = frozenset({"rnd", "admin"})
 MAX_TITLE = 200
 MAX_SUMMARY = 4000
 MAX_REASON = 1000
@@ -40,9 +43,18 @@ def can_edit(role: str) -> bool:
     return role in EDIT_ROLES
 
 
+def can_view(role: str) -> bool:
+    return role in VIEW_ROLES
+
+
 def _require_edit(role: str) -> None:
     if not can_edit(role):
-        raise TreeError(403, "Only R&D or administrators can change the knowledge tree.")
+        raise TreeError(403, "Only R&D can change the main knowledge graph.")
+
+
+def _require_view(role: str) -> None:
+    if not can_view(role):
+        raise TreeError(403, "The main knowledge graph is only visible to R&D and administrators.")
 
 
 def _now() -> datetime:
@@ -92,6 +104,17 @@ def _node_dict(n: KnowledgeNode) -> dict:
         "summary": n.summary,
         "version": n.version,
         "refs": n.refs or [],
+        "label": n.label or "Concept",
+        "layer": n.layer or "",
+        "properties": n.properties or {},
+        "key": n.key or "",
+        "names": n.names or {},
+        "description": n.description or "",
+        "provenance": n.provenance or {},
+        "created_by": n.created_by or "",
+        "created_at": n.created_at.isoformat() + "Z" if n.created_at else None,
+        "updated_by": n.updated_by or "",
+        "updated_at": n.updated_at.isoformat() + "Z" if n.updated_at else None,
     }
 
 
@@ -151,7 +174,10 @@ def node_detail(db: Session, node_id: str, excerpt_chars: int = 3000) -> dict:
                 "text": src.text[start:end][:excerpt_chars],
             }
         )
-    return {**_node_dict(node), "domain_id": node.domain_id, "excerpts": excerpts}
+    from .graph import relations_of
+
+    return {**_node_dict(node), "domain_id": node.domain_id, "excerpts": excerpts,
+            "relations": relations_of(db, node_id)}
 
 
 def has_content(db: Session) -> bool:
@@ -248,9 +274,23 @@ def find_scope(db: Session, query: str, domain_id: str | None = None, limit: int
 # ── direct edits (administrators) ────────────────────────────────────────────
 
 
+def _tracked(*args, **kwargs):
+    from .history import tracked
+
+    return tracked(*args, **kwargs)
+
+
+def _domain_of_node(db: Session, node_id: str) -> str | None:
+    node = db.get(KnowledgeNode, node_id)
+    return node.domain_id if node is not None else None
+
+
 def create_domain(db: Session, role: str, user_id: str, name: str, description: str = "") -> KnowledgeDomain:
     _require_edit(role)
-    return _create_domain(db, user_id, name, description)
+    with _tracked(db, user_id, None, "domain.create") as box:
+        domain = _create_domain(db, user_id, name, description)
+        box["domain_id"] = domain.id
+    return domain
 
 
 def _create_domain(db: Session, user_id: str, name: str, description: str) -> KnowledgeDomain:
@@ -270,11 +310,22 @@ def _create_domain(db: Session, user_id: str, name: str, description: str) -> Kn
     return domain
 
 
-def delete_domain(db: Session, role: str, domain_id: str) -> None:
+def delete_domain(db: Session, role: str, domain_id: str, user_id: str = "") -> None:
+    """Delete a domain with its nodes and documents (revertable from the history)."""
     _require_edit(role)
     domain = db.get(KnowledgeDomain, domain_id)
     if domain is None:
         raise TreeError(404, "Domain not found.")
+    with _tracked(db, user_id, domain_id, "domain.delete", summary=f"Deleted domain “{domain.name}”",
+                  source_text=True):
+        _delete_domain_rows(db, domain)
+
+
+def _delete_domain_rows(db: Session, domain: KnowledgeDomain) -> None:
+    domain_id = domain.id
+    from pathmind.database.models import KnowledgeEdge
+
+    db.query(KnowledgeEdge).filter(KnowledgeEdge.domain_id == domain_id).delete(synchronize_session=False)
     db.query(KnowledgeNode).filter(KnowledgeNode.domain_id == domain_id).delete(synchronize_session=False)
     db.query(KnowledgeSource).filter(KnowledgeSource.domain_id == domain_id).delete(synchronize_session=False)
     db.delete(domain)
@@ -283,10 +334,17 @@ def delete_domain(db: Session, role: str, domain_id: str) -> None:
 
 def update_domain(
     db: Session, role: str, domain_id: str, *, name: str | None = None, description: str | None = None,
-    kb_name: str | None = None, set_kb: bool = False,
+    kb_name: str | None = None, set_kb: bool = False, user_id: str = "",
 ) -> KnowledgeDomain:
-    """Rename / describe a domain and (admin only) link its GraphRAG knowledge base."""
+    """Rename / describe a domain and link its GraphRAG knowledge base."""
     _require_edit(role)
+    with _tracked(db, user_id, domain_id, "domain.update"):
+        return _update_domain(db, domain_id, name, description, kb_name, set_kb)
+
+
+def _update_domain(
+    db: Session, domain_id: str, name: str | None, description: str | None, kb_name: str | None, set_kb: bool
+) -> KnowledgeDomain:
     domain = db.get(KnowledgeDomain, domain_id)
     if domain is None:
         raise TreeError(404, "Domain not found.")
@@ -332,7 +390,8 @@ def create_node(
     db: Session, role: str, user_id: str, domain_id: str, parent_id: str | None, title: str, summary: str = ""
 ) -> KnowledgeNode:
     _require_edit(role)
-    return _create_node(db, user_id, domain_id, parent_id, title, summary)
+    with _tracked(db, user_id, domain_id, "node.create"):
+        return _create_node(db, user_id, domain_id, parent_id, title, summary)
 
 
 def _create_node(
@@ -349,8 +408,13 @@ def _create_node(
         position=_next_position(db, domain_id, parent_id),
         refs=[],
         updated_by=user_id,
+        created_by=user_id,
     )
     db.add(node)
+    db.flush()
+    from .graph import ensure_keys
+
+    ensure_keys(db, domain_id)
     db.commit()
     return node
 
@@ -360,7 +424,8 @@ def update_node(
     base_version: int | None = None,
 ) -> KnowledgeNode:
     _require_edit(role)
-    return _update_node(db, user_id, node_id, title, summary, base_version)
+    with _tracked(db, user_id, _domain_of_node(db, node_id), "node.update"):
+        return _update_node(db, user_id, node_id, title, summary, base_version)
 
 
 def _update_node(
@@ -397,7 +462,8 @@ def _descendants(db: Session, node_id: str) -> set[str]:
 
 def move_node(db: Session, role: str, user_id: str, node_id: str, parent_id: str | None) -> KnowledgeNode:
     _require_edit(role)
-    return _move_node(db, user_id, node_id, parent_id)
+    with _tracked(db, user_id, _domain_of_node(db, node_id), "node.move"):
+        return _move_node(db, user_id, node_id, parent_id)
 
 
 def _move_node(db: Session, user_id: str, node_id: str, parent_id: str | None) -> KnowledgeNode:
@@ -416,9 +482,10 @@ def _move_node(db: Session, user_id: str, node_id: str, parent_id: str | None) -
     return node
 
 
-def delete_node(db: Session, role: str, node_id: str) -> int:
+def delete_node(db: Session, role: str, node_id: str, user_id: str = "") -> int:
     _require_edit(role)
-    return _delete_node(db, node_id)
+    with _tracked(db, user_id, _domain_of_node(db, node_id), "node.delete"):
+        return _delete_node(db, node_id)
 
 
 def _delete_node(db: Session, node_id: str) -> int:
@@ -426,6 +493,9 @@ def _delete_node(db: Session, node_id: str) -> int:
     if node is None:
         raise TreeError(404, "Node not found.")
     ids = _descendants(db, node_id) | {node_id}
+    from .graph import drop_edges_of
+
+    drop_edges_of(db, ids)
     db.query(KnowledgeNode).filter(KnowledgeNode.id.in_(ids)).delete(synchronize_session=False)
     db.commit()
     return len(ids)
@@ -443,10 +513,20 @@ def import_file(
         text = ingest.extract_text(filename, data)
     except ingest.IngestError as exc:
         raise TreeError(400, str(exc)) from exc
+    if domain_id and db.get(KnowledgeDomain, domain_id) is None:
+        raise TreeError(404, "Domain not found.")
+    with _tracked(db, user_id, domain_id, "import", summary=f"Imported “{filename[:200]}”") as box:
+        result = _import_file(db, user_id, domain_id, new_domain_name, filename, data, text)
+        box["domain_id"] = result["domain_id"]
+    return result
+
+
+def _import_file(
+    db: Session, user_id: str, domain_id: str | None, new_domain_name: str | None,
+    filename: str, data: bytes, text: str,
+) -> dict:
     if domain_id:
         domain = db.get(KnowledgeDomain, domain_id)
-        if domain is None:
-            raise TreeError(404, "Domain not found.")
     else:
         domain = _create_domain(db, user_id, new_domain_name or filename.rsplit(".", 1)[0], "")
     source = KnowledgeSource(
@@ -469,10 +549,14 @@ def import_file(
         data={"filename": source.filename, "size": source.size, "domain_id": domain.id, "built_tree": True},
         commit=False,
     )
+    from .document_sync import apply_directives, parse_directives
+
     stack: list[tuple[int, str]] = []  # (level, node id)
     created = 0
+    declared: list = []
     positions: dict[str | None, int] = {}
     for sec in ingest.build_outline(text):
+        plain, directives = parse_directives(text[sec.start : sec.end])
         while stack and stack[-1][0] >= sec.level:
             stack.pop()
         parent_id = stack[-1][1] if stack else None
@@ -482,7 +566,7 @@ def import_file(
             domain_id=domain.id,
             parent_id=parent_id,
             title=sec.title,
-            summary=ingest.summarise(text, sec),
+            summary=_clean(" ".join(plain.split())[:400], MAX_SUMMARY),
             position=positions[parent_id],
             refs=[{"source_id": source.id, "start": sec.start, "end": sec.end}],
             updated_by=user_id,
@@ -491,7 +575,26 @@ def import_file(
         db.add(node)
         db.flush()
         stack.append((sec.level, node.id))
+        declared.append((node, directives))
         created += 1
+    from .graph import ensure_keys
+
+    for node, d in declared:
+        node.created_by = user_id
+        if d["id"]:
+            try:
+                from .graph import clean_key
+
+                key = clean_key(d["id"])
+                if not db.query(KnowledgeNode.id).filter(KnowledgeNode.domain_id == domain.id,
+                                                         KnowledgeNode.key == key).first():
+                    node.key = key
+            except TreeError:
+                pass
+    db.flush()
+    ensure_keys(db, domain.id)
+    db.flush()
+    warnings = apply_directives(db, user_id, domain.id, declared)
     domain.updated_at = _now()
     db.commit()
-    return {"domain_id": domain.id, "source_id": source.id, "nodes_created": created}
+    return {"domain_id": domain.id, "source_id": source.id, "nodes_created": created, "warnings": warnings}

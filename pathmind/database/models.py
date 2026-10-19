@@ -486,7 +486,12 @@ class KnowledgeSource(Base):
 
 
 class KnowledgeNode(Base):
-    """Topic (``parent_id`` null) or a node below it."""
+    """A node of the main knowledge graph.
+
+    ``parent_id`` is the outline placement (read as an implicit ``PART_OF`` edge);
+    every other relation is a :class:`KnowledgeEdge`. ``label`` names the node's
+    type from the schema; ``layer`` is an optional free grouping R&D may use.
+    """
 
     __tablename__ = "knowledge_nodes"
 
@@ -500,6 +505,58 @@ class KnowledgeNode(Base):
     version = Column(Integer, nullable=False, default=1)
     updated_by = Column(String(36), nullable=False, default="")
     updated_at = Column(DateTime, default=datetime.utcnow)
+    # Graph fields (nullable so existing databases gain them with ALTER TABLE).
+    label = Column(String(60), nullable=True)
+    layer = Column(String(12), nullable=True)  # optional, free text (e.g. "core", "advanced")
+    properties = Column(JSON, nullable=True)
+    # Entity fields: ``key`` is a readable id unique inside the domain (like Q42 in
+    # Wikidata), ``names`` the display name per language ({"vi": ..., "en": ...}),
+    # ``description`` a one-paragraph summary, ``provenance`` where the facts come
+    # from ({"source": ..., "confidence": 0.9, "note": ...}).
+    key = Column(String(80), nullable=True, index=True)
+    names = Column(JSON, nullable=True)
+    description = Column(Text, nullable=True)
+    provenance = Column(JSON, nullable=True)
+    created_by = Column(String(64), nullable=True)
+    created_at = Column(DateTime, nullable=True, default=datetime.utcnow)
+
+
+class KnowledgeEdge(Base):
+    """A typed, directed relation between two nodes of one domain (``Apple -TYPE_OF-> Fruit``)."""
+
+    __tablename__ = "knowledge_edges"
+
+    id = Column(String(36), primary_key=True, default=_gen_uuid)
+    domain_id = Column(String(36), nullable=False, index=True)
+    source_id = Column(String(36), nullable=False, index=True)
+    target_id = Column(String(36), nullable=False, index=True)
+    rel_type = Column(String(60), nullable=False)
+    properties = Column(JSON, nullable=False, default=dict)
+    created_by = Column(String(64), nullable=False, default="")
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class KnowledgeLabel(Base):
+    """A node type R&D declares (Category, Type, Concept, Lesson...)."""
+
+    __tablename__ = "knowledge_labels"
+
+    id = Column(String(36), primary_key=True, default=_gen_uuid)
+    name = Column(String(60), nullable=False, unique=True)
+    color = Column(String(16), nullable=False, default="")
+    description = Column(Text, nullable=False, default="")
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class KnowledgeRelationType(Base):
+    """A relation type R&D declares (TYPE_OF, PREREQUISITE_OF...)."""
+
+    __tablename__ = "knowledge_relation_types"
+
+    id = Column(String(36), primary_key=True, default=_gen_uuid)
+    name = Column(String(60), nullable=False, unique=True)
+    description = Column(Text, nullable=False, default="")
+    created_at = Column(DateTime, default=datetime.utcnow)
 
 
 # ── Personal knowledge branch (each paid user grows one beside the hidden main tree) ──
@@ -550,6 +607,30 @@ class BranchVersion(Base):
     label = Column(String(120), nullable=False, default="")
     snapshot = Column(JSON, nullable=False, default=list)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class KnowledgeTreeChange(Base):
+    """One edit of the main knowledge tree, with enough state to revert it.
+
+    ``before`` / ``after`` map entity keys (``domain:<id>``, ``node:<id>``,
+    ``source:<id>``) to full rows; a key missing on one side means the entity
+    did not exist there. Reverting writes ``before`` back and is itself
+    recorded as a change (``reverts_id``), so a revert can be undone too.
+    """
+
+    __tablename__ = "knowledge_tree_changes"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    domain_id = Column(String(36), nullable=False, index=True)
+    domain_name = Column(String(120), nullable=False, default="")
+    actor_id = Column(String(64), nullable=False, default="")
+    action = Column(String(40), nullable=False)
+    summary = Column(String(300), nullable=False, default="")
+    before = Column(JSON, nullable=False, default=dict)
+    after = Column(JSON, nullable=False, default=dict)
+    reverts_id = Column(Integer, nullable=True)
+    reverted_by_id = Column(Integer, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
 
 
 class AuditLog(Base):

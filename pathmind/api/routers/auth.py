@@ -590,6 +590,17 @@ async def require_rnd(
     return payload
 
 
+async def require_rnd_only(
+    payload: TokenPayload | None = Depends(require_auth),
+) -> TokenPayload:
+    """R&D accounts only: changes to the main knowledge tree (administrators just read it)."""
+    if not AUTH_ENABLED:
+        return _local_admin_token_payload()
+    if payload is None or _live_role(payload) != "rnd":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=_t("auth.rnd_only"))
+    return payload
+
+
 async def optional_auth(
     authorization: str | None = Header(default=None, alias="Authorization"),
     dt_token: str | None = Cookie(default=None, alias=_COOKIE_NAME),

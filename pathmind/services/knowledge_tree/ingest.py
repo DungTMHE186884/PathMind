@@ -97,7 +97,8 @@ def _heading_level(line: str) -> tuple[int, str] | None:
         return len(m.group(1)), m.group(2).strip()
     m = _NUMBERED.match(s)
     if m and not s.endswith((".", ",", ";")):
-        return min(m.group(1).count(".") + 1, 4), s
+        # The number only marks the level; the title is what nodes and relations refer to.
+        return min(m.group(1).count(".") + 1, 4), m.group(2).strip()
     if _CHAPTER.match(s):
         return 1, s
     return None

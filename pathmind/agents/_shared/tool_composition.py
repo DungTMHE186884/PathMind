@@ -47,8 +47,8 @@ AUTO_MOUNTED_TOOLS: frozenset[str] = frozenset(CONFIGURABLE_BUILTIN_TOOL_NAMES)
 _CONDITIONAL_MOUNT_FLAGS: dict[str, str] = {
     "rag": "has_kb",
     "kb_files": "has_kb",
-    "knowledge_tree": "has_knowledge_tree",
-    "knowledge_search": "has_knowledge_tree",
+    "knowledge_graph": "has_knowledge_graph",
+    "knowledge_search": "has_knowledge_graph",
     "knowledge_frontier": "has_kb",
     "read_source": "has_sources",
     "read_memory": "has_memory",
@@ -152,7 +152,7 @@ class ToolMountFlags:
 
     has_kb: bool = False
     #: The admin has published at least one knowledge-tree node.
-    has_knowledge_tree: bool = False
+    has_knowledge_graph: bool = False
     has_sources: bool = False
     has_memory: bool = False
     has_notebooks: bool = False
@@ -252,7 +252,10 @@ def compose_enabled_tools(
         )
 
     def _builtin_allowed(name: str) -> bool:
-        return builtin_whitelist is None or name in builtin_whitelist
+        if builtin_whitelist is None or name in builtin_whitelist:
+            return True
+        # Saved configs may still list the tool under its pre-graph name.
+        return name == "knowledge_graph" and "knowledge_tree" in builtin_whitelist
 
     composed: list[str] = [
         tool.name
@@ -288,8 +291,8 @@ def _ordered_unique(names: Iterable[str]) -> list[str]:
     return result
 
 
-def user_has_knowledge_tree() -> bool:
-    """Whether any knowledge-tree node exists. Fails closed like the others."""
+def user_has_knowledge_graph() -> bool:
+    """Whether any knowledge-graph node exists. Fails closed like the others."""
     try:
         from pathmind.database.connection import get_db_session
         from pathmind.services.knowledge_tree import has_content
@@ -303,6 +306,9 @@ def user_has_knowledge_tree() -> bool:
             return overlay.has_nodes(db, str(get_current_user().id or ""))
     except Exception:
         return False
+
+
+user_has_knowledge_tree = user_has_knowledge_graph  # backward-compatible alias
 
 
 def user_has_memory() -> bool:
@@ -400,6 +406,7 @@ __all__ = [
     "default_optional_tools",
     "partner_can_record_questions",
     "user_has_mastery_topics",
+    "user_has_knowledge_graph",
     "user_has_knowledge_tree",
     "user_has_memory",
     "user_has_notebooks",

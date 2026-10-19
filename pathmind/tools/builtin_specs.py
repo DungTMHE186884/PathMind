@@ -50,7 +50,7 @@ BUILTIN_TOOL_SPECS: tuple[BuiltinToolSpec, ...] = (
             ("brainstorm", "BrainstormTool"),
             ("rag", "RAGTool"),
             ("kb_files", "KbFilesTool"),
-            ("knowledge_tree", "KnowledgeTreeTool"),
+            ("knowledge_graph", "KnowledgeGraphTool"),
             ("knowledge_search", "KnowledgeSearchTool"),
             ("knowledge_frontier", "KnowledgeFrontierTool"),
             ("web_search", "WebSearchTool"),
@@ -204,6 +204,7 @@ TOOL_ALIASES: dict[str, tuple[str, dict[str, object]]] = {
     "rag_hybrid": ("rag", {"mode": "hybrid"}),
     "rag_naive": ("rag", {"mode": "naive"}),
     "rag_search": ("rag", {}),
+    "knowledge_tree": ("knowledge_graph", {}),
 }
 
 if len(BUILTIN_TOOL_SPEC_BY_NAME) != len(BUILTIN_TOOL_SPECS):

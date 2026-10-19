@@ -755,9 +755,10 @@ export function AuthPortal({ initialTab = "login" }: AuthPortalProps) {
   );
 }
 
-/** R&D and administrators land in the staff console unless a deep link was given. */
+/** Administrators land in /admin and R&D in /rnd unless a deep link was given. */
 function staffLanding(role: string | undefined, next: string | null, fallback: string) {
-  if (!next && (role === "admin" || role === "rnd")) return "/admin";
+  if (!next && role === "admin") return "/admin";
+  if (!next && role === "rnd") return "/rnd";
   return fallback;
 }
 

@@ -32,7 +32,7 @@ from pathmind.agents._shared.tool_composition import (
     compose_enabled_tools,
     default_optional_tools,
     partner_can_record_questions,
-    user_has_knowledge_tree,
+    user_has_knowledge_graph,
     user_has_mastery_topics,
     user_has_memory,
     user_has_notebooks,
@@ -686,7 +686,7 @@ class AgenticLoopPipeline:
                 # the investigation over attached sources), not the answer loop.
                 # Keep it off the answer surface even when sources are present.
                 has_sources=False,
-                has_knowledge_tree=user_has_knowledge_tree(),
+                has_knowledge_graph=user_has_knowledge_graph(),
                 has_memory=user_has_memory(),
                 has_notebooks=user_has_notebooks(),
                 # A partner turn mounts the bank even when it is still empty:

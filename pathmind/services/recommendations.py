@@ -122,7 +122,7 @@ def merge(
     db: Session, actor_id: str, rec_id: str, *, domain_id: str, parent_id: str | None,
     node_ids: list[str], adopt_documents: bool = True, note: str = "",
 ) -> dict:
-    """Copy the chosen snapshot nodes into the main tree under ``parent_id``.
+    """Copy the chosen snapshot nodes into the main graph under ``parent_id``.
 
     Chosen nodes keep their relative structure; a chosen node whose parent was not
     chosen hangs directly under ``parent_id``. The Educator's own branch is untouched.
@@ -143,6 +143,9 @@ def merge(
     chosen = [i for i in dict.fromkeys(node_ids) if i in snap]
     if not chosen:
         raise RecError(400, "Choose at least one node to merge.")
+    from pathmind.services.knowledge_tree import history
+
+    tree_before = history.snapshot(db, domain_id)
     new_id: dict[str, str] = {}
     order = sorted(chosen, key=lambda i: (snap[i].get("position") or 0))
     pending = list(order)
@@ -193,11 +196,14 @@ def merge(
     audit.record(db, actor_id, "recommendation.merge", target_type="recommendation", target_id=r.id,
                  data=r.merged, commit=False)
     db.commit()
+    # Reverting this only undoes the tree side; the Educator keeps the points.
+    history.record(db, actor_id, domain_id, "recommendation.merge", tree_before, history.snapshot(db, domain_id),
+                   summary=f"Merged recommendation “{r.title[:200]}”")
     from pathmind.services import notifications
 
     notifications.notify_user(
         r.educator_id, "Your recommendation was merged",
-        f"R&D merged “{r.title}” into the main knowledge tree. You earned {points} reward points.",
+        f"R&D merged “{r.title}” into the main knowledge graph. You earned {points} reward points.",
     )
     return _view(r, detail=True)
 
