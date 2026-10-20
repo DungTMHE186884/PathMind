@@ -32,18 +32,17 @@ MAX_FACTS = 40
 
 
 async def _admin_graph_search(*, query: str, kb_name: str, event_sink=None, **kwargs: Any) -> dict[str, Any]:
-    """Query a KB from the administrator's library.
+    """Query a KB linked to a domain (admin library or an R&D account's own library).
 
-    Linking a KB to a domain is the administrator's explicit act of publishing it
-    through the tutor, so this deliberately does not require the *asking* user to
-    hold a per-KB grant.
+    Linking a KB to a domain is R&D's explicit act of publishing it through the
+    tutor, so this deliberately does not require the *asking* user to hold a
+    per-KB grant.
     """
-    from pathmind.multi_user.knowledge_access import admin_kb_base_dir
+    from pathmind.services.knowledge_tree.service import resolve_kb_ref
     from pathmind.tools.rag_tool import rag_search
 
-    return await rag_search(
-        query=query, kb_name=kb_name, kb_base_dir=str(admin_kb_base_dir()), event_sink=event_sink, **kwargs
-    )
+    base_dir, name = resolve_kb_ref(kb_name)
+    return await rag_search(query=query, kb_name=name, kb_base_dir=base_dir, event_sink=event_sink, **kwargs)
 
 
 def _excerpt(db, node_id: str, chars: int) -> tuple[str, str]:

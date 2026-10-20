@@ -110,8 +110,17 @@ export function importFile(file: File, domainId: string | null, name = "") {
   );
 }
 
+/** A GraphRAG KB a domain may link: the admin library or an R&D account's own. */
+export interface KbOption {
+  ref: string;
+  name: string;
+  owner_id: string;
+  owner: string;
+}
 export const listKbOptions = () =>
-  call<{ knowledge_bases: string[] }>("/kb-options").then((r) => r.knowledge_bases);
+  call<{ knowledge_bases: string[]; options?: KbOption[] }>("/kb-options").then(
+    (r) => r.options ?? r.knowledge_bases.map((ref) => ({ ref, name: ref, owner_id: "", owner: "admin" })),
+  );
 export const patchDomain = (
   id: string,
   patch: { name?: string; description?: string; kb_name?: string | null },

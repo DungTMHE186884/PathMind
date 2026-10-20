@@ -36,6 +36,13 @@ Chú thích: ✅ hoàn thiện · 🟡 chạy được nhưng chưa đầy đủ
 
 ---
 
+### RAG chạy thật, KB của R&D, cấu hình hệ thống trong console (2026-10-20)
+- **Thư viện RAG đã cài**: `lightrag-hku==1.5.7`, `graphrag 3.3.0` (extras `rag-lightrag`, `graphrag` trong `pyproject.toml`). LightRAG đã thử index + hỏi thật thành công; GraphRAG mới kiểm tra mức sẵn sàng.
+- **Key/model đang chạy (kiểm 2026-10-20)**: Gemini key cũ **hết hạn (401)**, OpenAI **hết credit (429)**, DeepSeek **hết số dư**, Anthropic còn chạy, proxy `api.xah.io` còn chạy. Model chat mặc định = `dungcsnd113/gemini-flash-3.8` (proxy, binding `custom`); embedding mặc định = `text-embedding-3-small` qua proxy (1536 chiều). Proxy model là **alias** của dòng giá `gemini-3.8-flash` ⇒ Plus/Pro/Unlimited dùng được; **gói Free chưa có model nào chạy được** (mọi model Free đều thuộc key hỏng).
+- **R&D nối KB GraphRAG của mình**: `knowledge_tree.service.linkable_kbs()` liệt kê KB GraphRAG trong kho admin + kho của mọi tài khoản `rnd`; domain lưu `kb_name` = tên (kho admin, như cũ) hoặc `<user_id>/<tên>` (kho R&D); `resolve_kb_ref()` ra thư mục + tên, `unified._admin_graph_search` dùng nó. `GET /kb-options` trả thêm `options` (tên + chủ).
+- **Cấu hình hệ thống chuyển sang console**: `/admin/config/<mục>` (`components/staff/pages/ConsoleSettingsPage.tsx`, dùng lại `SETTINGS_SECTIONS` + store/nháp/thanh Apply của Cài đặt): Providers & API keys, Language/Task/Embedding models, Web search, Voice, Multimodal, Capabilities, Knowledge & documents, Starting points, Runtime status. Cài đặt của app (`/settings`) giờ **chỉ còn mục cá nhân** cho mọi người (`SettingsAccessProvider mode="app"` ⇒ `hideAdminOnly` luôn true; console dùng `mode="console"`); admin mở link cũ `/settings/<mục hệ thống>` ⇒ chuyển sang `/admin/config/<mục>`. Trang General không còn khối "Set up chat first".
+- **Nút quay lại console** trong giao diện học viên (`components/auth/UserMenu.tsx`): admin ⇒ "Back to Admin console" (`/admin`), R&D ⇒ "Back to R&D console" (`/rnd`).
+
 ### Seed, key LLM cũ, trang Models (2026-10-20)
 - **Seed một file** (`services/seed.py`): khởi động ⇒ nạp mọi `data/seed/*.json` mới/đổi (bỏ `*.example.json`; nhớ hash ở `data/seed/.applied.json`). Gồm `accounts` (vai trò, gói; không có mật khẩu ⇒ sinh và ghi `data/seed/seed-accounts.txt`), `schema`, `knowledge` (domain viết dạng tài liệu có `@…`), `llm_providers` (key mã hoá khi ghi), `reward_rules`. Không ghi đè gì đã có. Mẫu: `seed/pathmind-seed.example.json` (không có mật khẩu/key); CLI `scripts/load_seed.py`. Test: `tests_pm/multi_user/test_seed.py`.
 - **Key LLM từ bản cũ**: `scripts/import_llm_keys.py --catalog <model_catalog.json> [--rewrite-db]` gộp connection/profile theo id (chạy lại không trùng), `--rewrite-db` đọc `public.ai_providers` của bản `backend/` và giải mã bằng `data/secret.key`. Đã nhập 2026-10-20 từ `C:\PathMind_removed\db_backup\model_catalog_before_encrypt.json` (Gemini, Anthropic, OpenAI, DeepSeek) + proxy `api.xah.io` (binding `custom`). Khoá mã hoá key: `data/system/secrets.key` — **sao lưu riêng**, mất là phải nhập lại key.
@@ -66,7 +73,7 @@ Chú thích: ✅ hoàn thiện · 🟡 chạy được nhưng chưa đầy đủ
 - **RAG (D2)**: KB mới chỉ GraphRAG/LightRAG; người dùng thường **chỉ LightRAG** (`_new_kb_provider` 403; `rag-providers` trả `selectable`, `CreateKbModal` lọc). GraphRAG dành cho cây chính của admin/rnd.
 - `object_store.save/load(..., db=)`: truyền phiên đang mở khi đang trong giao dịch ghi (tránh phiên thứ hai rollback/khoá SQLite).
 - Test: `tests_pm/` (chạy cùng `conftest` của `C:\PathMind_removed\tests\tests`), thêm `tests_pm/services/test_branch_rewards.py`.
-- Còn tồn: R&D chưa nối được KB GraphRAG của chính mình vào domain (`admin_kb_names` đọc kho của admin); dịch i18n chuỗi mới; `npm run contracts:generate`; mã hoá SMTP/S3 secret trong DB.
+- Còn tồn: dịch i18n chuỗi mới; `npm run contracts:generate`; mã hoá SMTP/S3 secret trong DB.
 
 ### Cây tri thức + công cụ truy hồi hợp nhất (2026-10-07)
 - Menu **Knowledge Tree** (`/knowledge-tree`, API `/api/knowledge-tree`). **Chỉ admin** tạo/sửa/xoá (nhập PDF/DOCX/MD/TXT: tiêu đề → nút), mọi người đăng nhập chỉ đọc. Bảng `knowledge_domains` (có `kb_name` nối tới KB GraphRAG trong kho của admin), `knowledge_sources`, `knowledge_nodes`; code ở `services/knowledge_tree/` (`ingest.py`, `service.py`, `unified.py`).

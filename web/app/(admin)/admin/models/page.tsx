@@ -40,11 +40,11 @@ export default function AdminModelsPage() {
       subtitle={t("API price of every model (it decides how many credits a call costs) and the providers that serve them. Which models each plan may use is set on the Plans page.")}
     >
       <div className="mb-5 flex flex-wrap gap-2">
-        <Link href="/settings/connections" className={LINK}>
+        <Link href="/admin/config/connections" className={LINK}>
           <KeyRound size={13} />
           {t("Providers & API keys")}
         </Link>
-        <Link href="/settings/llm" className={LINK}>
+        <Link href="/admin/config/llm" className={LINK}>
           {t("Default chat model")}
         </Link>
         <Link href="/admin/plans" className={LINK}>

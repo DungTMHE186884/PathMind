@@ -119,6 +119,17 @@ const extraPages: SettingsLeaf[] = [
   },
 ]
 
+/** Pages that configure the whole system (shown in the admin console, not the app). */
+export function isSystemSettingsKey(key: string): boolean {
+  const resolved = resolveSettingsKey(key)
+  if (extraPages.some(leaf => leaf.adminOnly && resolveSettingsKey(leaf.key) === resolved)) return true
+  return SETTINGS_CATEGORIES.some(category =>
+    (category.children ?? [{ ...category, tile: '' }]).some(
+      leaf => (leaf.adminOnly || category.adminOnly) && resolveSettingsKey(leaf.key) === resolved
+    )
+  )
+}
+
 export function visibleSettingsPages(access: SettingsAccess): SettingsLeaf[] {
   return [
     ...extraPages.filter(leaf => isSettingsLeafVisible(leaf, access)),

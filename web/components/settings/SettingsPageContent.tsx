@@ -12,6 +12,7 @@ import {
   settingsAnchorHref,
 } from "@/features/settings/navigation/settings-nav";
 import {
+  isSystemSettingsKey,
   settingsPageFamily,
   visibleSettingsPages,
 } from "@/features/settings/navigation/settings-pages";
@@ -130,7 +131,8 @@ const Multimodal = dynamic(
   { loading },
 );
 
-const PAGES: Record<string, React.ComponentType> = {
+/** Every settings page body, also rendered by the admin console (/admin/config/<key>). */
+export const SETTINGS_SECTIONS: Record<string, React.ComponentType> = {
   profile: Profile,
   billing: Billing,
   voice: Voice,
@@ -173,6 +175,12 @@ export default function SettingsPageContent({ section }: { section: string }) {
         scroll: false,
       });
   }, [key, section, router]);
+  // System pages moved to the admin console; old links land there.
+  const movedToConsole = access.resolved && access.isAdmin && isSystemSettingsKey(key);
+  useEffect(() => {
+    if (movedToConsole) router.replace(`/admin/config/${key}`);
+  }, [movedToConsole, key, router]);
+  if (movedToConsole) return loading();
   if (!access.resolved) return loading();
   if (settingsLoading) return loading();
   if (!page)
@@ -186,7 +194,7 @@ export default function SettingsPageContent({ section }: { section: string }) {
         </Link>
       </div>
     );
-  const Component = PAGES[key];
+  const Component = SETTINGS_SECTIONS[key];
   return (
     <fieldset disabled={saving || applying} aria-busy={saving || applying} className="min-w-0" data-settings-page={key}>
       {family.length > 1 && (

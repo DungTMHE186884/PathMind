@@ -35,6 +35,9 @@ croniter>=6.0.0,<7.0.0
 # Relational data (plans, payments, usage): SQLite by default, PostgreSQL via DATABASE_URL
 sqlalchemy>=2.0.30,<3.0.0
 psycopg[binary]>=3.2.0,<4.0.0
+# Knowledge-base engines (D2): GraphRAG for the main graph, LightRAG for users' documents
+lightrag-hku==1.5.7
+graphrag>=3.0.1,<4.0.0; python_version < '3.14'
 
 # --- Runtime observability ---
 # Process-tree memory readings behind /api/system/memory. Imported lazily

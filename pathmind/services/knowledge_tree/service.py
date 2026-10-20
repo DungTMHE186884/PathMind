@@ -355,21 +355,63 @@ def _update_domain(
     if set_kb:
         link = _clean(kb_name, 200)
         if link and link not in admin_kb_names():
-            raise TreeError(400, "That knowledge base does not exist in the admin library.")
+            raise TreeError(400, "That GraphRAG knowledge base does not exist in the admin or R&D libraries.")
         domain.kb_name = link or None
     domain.updated_at = _now()
     db.commit()
     return domain
 
 
-def admin_kb_names() -> list[str]:
-    """Names of the administrator's knowledge bases (the only ones a domain may link)."""
-    try:
-        from pathmind.multi_user.knowledge_access import admin_kb_manager
+def linkable_kbs() -> list[dict]:
+    """GraphRAG knowledge bases a domain may link: the admin library and every R&D account's.
 
-        return sorted(admin_kb_manager().list_knowledge_bases())
+    A reference is the plain KB name for the admin library (how links were
+    stored before) or ``<user id>/<name>`` for an R&D account's own KB.
+    """
+    out: list[dict] = []
+    try:
+        from pathmind.multi_user.identity import load_users
+        from pathmind.multi_user.knowledge_access import _manager_for, admin_kb_base_dir
+        from pathmind.multi_user.paths import get_path_service_for_scope, scope_for_user
     except Exception:  # noqa: BLE001
-        return []
+        return out
+
+    def add(base_dir, owner_id: str, owner_name: str) -> None:
+        try:
+            manager = _manager_for(str(base_dir.resolve()))
+            for name in manager.list_knowledge_bases():
+                entry = manager.get_kb_entry(name) or {}
+                provider = str(entry.get("rag_provider") or "").lower()
+                if provider and provider != "graphrag":
+                    continue  # the main graph links GraphRAG KBs (D2)
+                ref = name if not owner_id else f"{owner_id}/{name}"
+                out.append({"ref": ref, "name": name, "owner_id": owner_id, "owner": owner_name})
+        except Exception:  # noqa: BLE001 - one unreadable library must not hide the others
+            pass
+
+    add(admin_kb_base_dir(), "", "admin")
+    for username, record in load_users().items():
+        if str(record.get("role") or "") == "rnd" and record.get("id"):
+            scope = scope_for_user(str(record["id"]), is_admin=False)
+            add(get_path_service_for_scope(scope).get_knowledge_bases_root(), str(record["id"]), username)
+    return sorted(out, key=lambda x: (x["owner"], x["name"]))
+
+
+def resolve_kb_ref(ref: str) -> tuple[str, str]:
+    """``(library dir, kb name)`` for a linked KB reference (see :func:`linkable_kbs`)."""
+    from pathmind.multi_user.knowledge_access import admin_kb_base_dir
+    from pathmind.multi_user.paths import get_path_service_for_scope, scope_for_user
+
+    owner, _, name = ref.rpartition("/")
+    if not owner:
+        return str(admin_kb_base_dir()), ref
+    scope = scope_for_user(owner, is_admin=False)
+    return str(get_path_service_for_scope(scope).get_knowledge_bases_root()), name
+
+
+def admin_kb_names() -> list[str]:
+    """References of the knowledge bases a domain may link (kept for older callers)."""
+    return [x["ref"] for x in linkable_kbs()]
 
 
 def _next_position(db: Session, domain_id: str, parent_id: str | None) -> int:

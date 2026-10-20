@@ -7,6 +7,7 @@ import {
   PENDING_SETTINGS_ACCESS,
   settingsAccessFromAuthStatus,
   type SettingsAccess,
+  type SettingsMode,
 } from "@/features/settings/navigation/settings-access";
 
 const SettingsAccessContext = createContext<SettingsAccess>(
@@ -16,7 +17,8 @@ const SettingsAccessContext = createContext<SettingsAccess>(
 /** Resolve settings access once for the entire persistent settings document. */
 export function SettingsAccessProvider({
   children,
-}: Readonly<{ children: React.ReactNode }>) {
+  mode = "app",
+}: Readonly<{ children: React.ReactNode; mode?: SettingsMode }>) {
   // Shared auth store: settings open with the right pages for this account
   // instead of waiting on a fresh /api/auth/status round trip every visit.
   const status = useAuthSnapshot();
@@ -24,8 +26,8 @@ export function SettingsAccessProvider({
     () =>
       status === undefined
         ? PENDING_SETTINGS_ACCESS
-        : settingsAccessFromAuthStatus(status.unavailable ? null : status),
-    [status],
+        : settingsAccessFromAuthStatus(status.unavailable ? null : status, mode),
+    [status, mode],
   );
   return (
     <SettingsAccessContext.Provider value={value}>

@@ -29,6 +29,10 @@ def factory(monkeypatch):
     monkeypatch.setattr(connection, "SessionLocal", f)
     monkeypatch.setattr(kt.service, "admin_kb_names", lambda: ["maths-kb", "other-kb"])
     monkeypatch.setattr(kt, "admin_kb_names", lambda: ["maths-kb", "other-kb"])
+    monkeypatch.setattr(
+        kt.service, "linkable_kbs",
+        lambda: [{"ref": n, "name": n, "owner_id": "", "owner": "admin"} for n in ("maths-kb", "other-kb")],
+    )
     return f
 
 
@@ -269,3 +273,23 @@ def test_tools_run(factory):
     assert bad.success is False
     res = asyncio.run(KnowledgeSearchTool().execute(query="triangles"))
     assert "Triangles" in str(res.content) and "## Graph facts" in str(res.content)
+
+
+def test_linked_kb_reference_points_at_the_right_library(monkeypatch, tmp_path):
+    from pathmind.multi_user import knowledge_access, paths
+
+    monkeypatch.setattr(knowledge_access, "admin_kb_base_dir", lambda: tmp_path / "admin-kbs")
+    base, name = kt.service.resolve_kb_ref("maths-kb")
+    assert (base, name) == (str(tmp_path / "admin-kbs"), "maths-kb")  # plain name = admin library
+    monkeypatch.setattr(paths, "scope_for_user", lambda uid, is_admin: uid)
+
+    class _Paths:
+        def __init__(self, uid):
+            self.uid = uid
+
+        def get_knowledge_bases_root(self):
+            return tmp_path / self.uid / "kbs"
+
+    monkeypatch.setattr(paths, "get_path_service_for_scope", _Paths)
+    base, name = kt.service.resolve_kb_ref("u_rnd1/graph-kb")
+    assert (base, name) == (str(tmp_path / "u_rnd1" / "kbs"), "graph-kb")  # owner/name = that R&D's library

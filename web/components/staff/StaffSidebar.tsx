@@ -10,6 +10,7 @@ import {
   FileText,
   Boxes,
   Cpu,
+  KeyRound,
   CalendarClock,
   ExternalLink,
   Gift,
@@ -31,6 +32,7 @@ import { getAdminStats } from "@/lib/admin-api";
 import { logout } from "@/lib/auth";
 
 import type { StaffConsole } from "@/components/admin/StaffGuard";
+import { CONSOLE_CONFIG_PAGES } from "@/components/staff/pages/ConsoleSettingsPage";
 
 interface NavItem {
   href: string;
@@ -81,6 +83,15 @@ export const CONSOLE_NAV: Record<StaffConsole, NavGroup[]> = {
         { href: "/admin/reviews", label: "Branch reviews", icon: Inbox },
         { href: "/admin/samples", label: "Samples", icon: FileText },
       ],
+    },
+    {
+      // System configuration that used to sit in the app's Settings.
+      label: "Configuration",
+      items: CONSOLE_CONFIG_PAGES.map((page) => ({
+        href: `/admin/config/${page.key}`,
+        label: page.label,
+        icon: page.key === "connections" ? KeyRound : SlidersHorizontal,
+      })),
     },
     {
       label: "System",

@@ -99,7 +99,8 @@ def kb_options():
     _, _, role = _who()
     if not kt.can_edit(role):
         raise HTTPException(status_code=403, detail="Only R&D can link knowledge bases.")
-    return {"knowledge_bases": kt.admin_kb_names()}
+    options = kt.service.linkable_kbs()
+    return {"knowledge_bases": [x["ref"] for x in options], "options": options}
 
 
 @router.patch("/domains/{domain_id}")

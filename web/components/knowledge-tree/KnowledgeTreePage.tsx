@@ -14,6 +14,7 @@ import {
   askKnowledge,
   getRights,
   listKbOptions,
+  type KbOption,
   patchDomain,
   type AskResult,
   getTree,
@@ -452,7 +453,7 @@ function KbPanel({
   domainId, current, onChanged, onError,
 }: { domainId: string; current: string | null; onChanged: () => void; onError: (e: unknown) => void }) {
   const { t } = useTranslation();
-  const [options, setOptions] = useState<string[]>([]);
+  const [options, setOptions] = useState<KbOption[]>([]);
   const [q, setQ] = useState("");
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<AskResult | null>(null);
@@ -497,7 +498,7 @@ function KbPanel({
       >
         <option value="">{t("None")}</option>
         {options.map((o) => (
-          <option key={o} value={o}>{o}</option>
+          <option key={o.ref} value={o.ref}>{o.name} — {o.owner}</option>
         ))}
       </select>
       <p className="text-[11px] text-[var(--muted-foreground)]">
